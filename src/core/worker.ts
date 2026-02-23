@@ -405,7 +405,7 @@ export class Worker {
   ): Promise<TaskResult> {
     const realCwd = this.validateWorkingDir(projectPath);
 
-    const args = ["--print", "--output-format", "stream-json"];
+    const args = ["--print", "--verbose", "--output-format", "stream-json"];
 
     // Use --resume for continue sessions and replay mode unless explicitly disabled after a resume failure.
     const allowResume = ctx.allowResume !== false;

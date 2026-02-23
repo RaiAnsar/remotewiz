@@ -187,8 +187,8 @@ export class DiscordAdapter implements Adapter {
         return;
       }
 
-      // Strip the mention from the prompt
-      const prompt = message.content.replace(/<@!?\d+>/g, "").trim();
+      // Strip all mentions (user, role, channel) from the prompt
+      const prompt = message.content.replace(/<@[!&]?\d+>/g, "").replace(/<#\d+>/g, "").trim();
       if (!prompt) {
         await message.reply("Tag me with a message and I'll create a task thread. Example: `@RemoteWiz fix the login bug`");
         return;
@@ -275,13 +275,19 @@ export class DiscordAdapter implements Adapter {
       return;
     }
 
+    // Strip mentions from prompt — they're just noise to Claude
+    const prompt = message.content.replace(/<@[!&]?\d+>/g, "").replace(/<#\d+>/g, "").trim();
+    if (!prompt) {
+      return;
+    }
+
     // Store reference to user message for emoji reactions
     this.threadMessages.set(threadId, message);
 
     try {
       await this.app.enqueueTask({
         projectAlias: binding.projectAlias,
-        prompt: message.content,
+        prompt,
         threadId,
         adapter: "discord",
         continueSession: false,
