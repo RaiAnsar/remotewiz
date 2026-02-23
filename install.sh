@@ -6,7 +6,6 @@ set -euo pipefail
 
 REPO_URL="https://github.com/raiansar/remotewiz.git"
 INSTALL_DIR="${REMOTEWIZ_HOME:-$HOME/.remote-wiz}"
-BIN_LINK="/usr/local/bin/remotewiz"
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -100,21 +99,60 @@ else
   ok "Existing .env preserved"
 fi
 
-# ── Symlink ──────────────────────────────────────────────────────────────────
+# ── PATH Setup ───────────────────────────────────────────────────────────────
 
 chmod +x "$INSTALL_DIR/bin/remotewiz"
 
-if [ -L "$BIN_LINK" ] || [ -e "$BIN_LINK" ]; then
-  rm -f "$BIN_LINK" 2>/dev/null || true
+LINKED=false
+
+# Strategy 1: ~/.local/bin (no sudo, XDG standard)
+LOCAL_BIN="$HOME/.local/bin"
+if [ -d "$LOCAL_BIN" ] || mkdir -p "$LOCAL_BIN" 2>/dev/null; then
+  ln -sf "$INSTALL_DIR/bin/remotewiz" "$LOCAL_BIN/remotewiz" 2>/dev/null && LINKED=true
 fi
 
-if ln -sf "$INSTALL_DIR/bin/remotewiz" "$BIN_LINK" 2>/dev/null; then
-  ok "Linked 'remotewiz' command to ${BIN_LINK}"
+# Strategy 2: /usr/local/bin (needs write access)
+if [ "$LINKED" = false ]; then
+  ln -sf "$INSTALL_DIR/bin/remotewiz" /usr/local/bin/remotewiz 2>/dev/null && LINKED=true
+fi
+
+if [ "$LINKED" = true ]; then
+  # Determine where it landed
+  LINK_PATH="$LOCAL_BIN/remotewiz"
+  [ -L "/usr/local/bin/remotewiz" ] && LINK_PATH="/usr/local/bin/remotewiz"
+  ok "Linked 'remotewiz' → ${LINK_PATH}"
+
+  # Ensure ~/.local/bin is in PATH for current and future shells
+  if [ "$LINK_PATH" = "$LOCAL_BIN/remotewiz" ]; then
+    case ":$PATH:" in
+      *":$LOCAL_BIN:"*) ;;  # already in PATH
+      *)
+        # Detect shell rc file
+        SHELL_RC=""
+        if [ -n "${ZSH_VERSION:-}" ] || [ "$(basename "${SHELL:-}")" = "zsh" ]; then
+          SHELL_RC="$HOME/.zshrc"
+        elif [ -f "$HOME/.bashrc" ]; then
+          SHELL_RC="$HOME/.bashrc"
+        elif [ -f "$HOME/.bash_profile" ]; then
+          SHELL_RC="$HOME/.bash_profile"
+        fi
+
+        if [ -n "$SHELL_RC" ]; then
+          if ! grep -q '\.local/bin' "$SHELL_RC" 2>/dev/null; then
+            printf '\n# Added by RemoteWiz installer\nexport PATH="$HOME/.local/bin:$PATH"\n' >> "$SHELL_RC"
+            ok "Added ~/.local/bin to PATH in $(basename "$SHELL_RC")"
+          fi
+        fi
+
+        export PATH="$LOCAL_BIN:$PATH"
+        ;;
+    esac
+  fi
 else
-  warn "Could not link to ${BIN_LINK} (permission denied)"
+  warn "Could not link remotewiz to PATH"
   echo ""
-  info "Try one of:"
-  echo "    sudo ln -sf \"$INSTALL_DIR/bin/remotewiz\" $BIN_LINK"
+  info "Run one of these manually:"
+  echo "    sudo ln -sf \"$INSTALL_DIR/bin/remotewiz\" /usr/local/bin/remotewiz"
   echo "    export PATH=\"$INSTALL_DIR/bin:\$PATH\"  # add to ~/.zshrc or ~/.bashrc"
 fi
 
