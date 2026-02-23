@@ -270,6 +270,68 @@ if [ "$real_count" -gt 0 ]; then
   echo ""
 fi
 
+# Discover project directories from common locations
+discover_dirs() {
+  local dirs=()
+  local search_roots=("$HOME/Desktop" "$HOME/Documents" "$HOME/Projects" "$HOME/projects" "$HOME/code" "$HOME/Code" "$HOME/dev" "$HOME/Dev" "$HOME/repos" "$HOME/src" "$HOME/work" "$HOME/Work")
+  for root in "${search_roots[@]}"; do
+    if [ -d "$root" ]; then
+      for d in "$root"/*/; do
+        [ -d "$d" ] || continue
+        # Only suggest dirs that look like projects (have .git, package.json, etc.)
+        if [ -d "$d/.git" ] || [ -f "$d/package.json" ] || [ -f "$d/Cargo.toml" ] || [ -f "$d/go.mod" ] || [ -f "$d/pyproject.toml" ] || [ -f "$d/requirements.txt" ] || [ -f "$d/Makefile" ] || [ -f "$d/pom.xml" ] || [ -f "$d/build.gradle" ]; then
+          dirs+=("${d%/}")
+        fi
+      done
+    fi
+  done
+  printf '%s\n' "${dirs[@]}"
+}
+
+pick_project_path() {
+  local discovered=()
+  while IFS= read -r line; do
+    [ -n "$line" ] && discovered+=("$line")
+  done < <(discover_dirs)
+
+  if [ ${#discovered[@]} -gt 0 ]; then
+    echo ""
+    info "Detected project directories:"
+    local i=1
+    local show_count=${#discovered[@]}
+    [ "$show_count" -gt 15 ] && show_count=15
+    for ((idx=0; idx<show_count; idx++)); do
+      local d="${discovered[$idx]}"
+      local short="${d/#$HOME/~}"
+      printf "  ${CYAN}%2d${NC}) %s\n" "$i" "$short"
+      i=$((i + 1))
+    done
+    if [ ${#discovered[@]} -gt 15 ]; then
+      printf "  ${DIM}   ... and %d more${NC}\n" $(( ${#discovered[@]} - 15 ))
+    fi
+    printf "  ${CYAN}%2d${NC}) ${DIM}Enter custom path${NC}\n" "$i"
+    echo ""
+
+    local choice
+    choice=$(prompt_with_default "Pick a number")
+    if [ -n "$choice" ] && [ "$choice" -eq "$choice" ] 2>/dev/null; then
+      if [ "$choice" -ge 1 ] && [ "$choice" -le "$show_count" ]; then
+        echo "${discovered[$((choice - 1))]}"
+        return 0
+      fi
+    fi
+  fi
+
+  # Custom path fallback
+  local raw_path
+  raw_path=$(prompt_with_default "Project path")
+  if [ -n "$raw_path" ]; then
+    expand_path "$raw_path"
+    return 0
+  fi
+  return 1
+}
+
 # Add projects loop
 if [ "$real_count" -eq 0 ]; then
   info "Add your project directories so RemoteWiz can manage them."
@@ -284,20 +346,21 @@ while true; do
     fi
   fi
 
-  name=$(prompt_with_default "Project name (short slug, e.g. my-app)")
-  if [ -z "$name" ]; then
+  proj_path=""
+  if ! proj_path=$(pick_project_path) || [ -z "$proj_path" ]; then
     if [ "$real_count" -eq 0 ]; then
       warn "Skipped — add projects later in config.json"
     fi
     break
   fi
 
-  raw_path=$(prompt_with_default "Path to project directory")
-  if [ -z "$raw_path" ]; then
-    warn "Path cannot be empty, skipping"
+  # Suggest slug from directory name
+  default_name=$(basename "$proj_path" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/--*/-/g' | sed 's/^-//;s/-$//')
+  name=$(prompt_with_default "Project name" "$default_name")
+  if [ -z "$name" ]; then
+    warn "Name cannot be empty, skipping"
     continue
   fi
-  proj_path=$(expand_path "$raw_path")
 
   if [ ! -d "$proj_path" ]; then
     warn "Directory not found: $proj_path"
