@@ -1,0 +1,11 @@
+{
+  "projects": {
+    "raiansar": {
+      "path": "/Users/rai/Desktop/Work/Projects/Vibe/raiansar-nextjs",
+      "description": "Next.js portfolio site",
+      "tokenBudget": 150000,
+      "timeout": 600000,
+      "skipPermissions": false
+    }
+  }
+}

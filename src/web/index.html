@@ -1,0 +1,308 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>RemoteWiz</title>
+    <style>
+      :root {
+        --bg: #0a0f1c;
+        --panel: #121a2f;
+        --accent: #35c2ff;
+        --text: #e7eefc;
+        --muted: #97a6c5;
+        --danger: #ff6b6b;
+        --ok: #6ee7b7;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: "SF Mono", "JetBrains Mono", Menlo, monospace;
+        color: var(--text);
+        background: radial-gradient(circle at 20% 10%, #1b2753 0%, var(--bg) 40%), var(--bg);
+      }
+      .app {
+        min-height: 100vh;
+        display: grid;
+        grid-template-rows: auto 1fr auto;
+        max-width: 980px;
+        margin: 0 auto;
+        padding: 12px;
+        gap: 12px;
+      }
+      .topbar,
+      .composer,
+      .panel {
+        background: color-mix(in oklab, var(--panel) 92%, black 8%);
+        border: 1px solid #27345b;
+        border-radius: 14px;
+      }
+      .topbar {
+        padding: 10px;
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 10px;
+      }
+      select,input,textarea,button {
+        background: #0d1430;
+        border: 1px solid #2a3a6e;
+        color: var(--text);
+        border-radius: 10px;
+        padding: 10px;
+        font: inherit;
+      }
+      button {
+        cursor: pointer;
+      }
+      button.primary {
+        background: linear-gradient(120deg, #2ab6ff, #00e4b6);
+        color: #041017;
+        border: none;
+        font-weight: 700;
+      }
+      .panel {
+        padding: 12px;
+        overflow: auto;
+      }
+      .msg {
+        border: 1px solid #2b3a67;
+        border-radius: 10px;
+        padding: 10px;
+        margin-bottom: 8px;
+        white-space: pre-wrap;
+      }
+      .msg.user { border-color: #2f6b8e; }
+      .msg.bot { border-color: #2c8159; }
+      .msg.approval { border-color: #c4a035; }
+      .muted { color: var(--muted); }
+      .approval-actions { margin-top: 8px; display: flex; gap: 8px; }
+      .approval-actions button { padding: 6px 16px; font-size: 13px; border-radius: 8px; }
+      .btn-approve { background: var(--ok); color: #041017; border: none; font-weight: 700; }
+      .btn-deny { background: var(--danger); color: #041017; border: none; font-weight: 700; }
+      .btn-approve:disabled, .btn-deny:disabled { opacity: 0.4; cursor: default; }
+      .composer {
+        display: grid;
+        gap: 10px;
+        padding: 10px;
+      }
+      .row {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+      }
+      .status {
+        font-size: 12px;
+        color: var(--muted);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="app">
+      <div class="topbar">
+        <div class="row">
+          <label for="project">Project</label>
+          <select id="project"></select>
+          <label><input id="continue" type="checkbox" /> Continue</label>
+        </div>
+        <div class="row">
+          <input id="token" type="password" placeholder="WEB_AUTH_TOKEN" />
+          <button id="connect" class="primary">Connect</button>
+        </div>
+      </div>
+
+      <div id="messages" class="panel"></div>
+
+      <div class="composer">
+        <textarea id="prompt" rows="4" placeholder="Ask RemoteWiz to do work..."></textarea>
+        <div class="row">
+          <input id="file" type="file" />
+          <button id="send" class="primary">Send</button>
+          <span id="status" class="status">Disconnected</span>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const state = {
+        ws: null,
+        token: localStorage.getItem("rw_token") || "",
+        projects: [],
+        pendingUploadId: null,
+      };
+
+      const els = {
+        project: document.getElementById("project"),
+        token: document.getElementById("token"),
+        connect: document.getElementById("connect"),
+        send: document.getElementById("send"),
+        prompt: document.getElementById("prompt"),
+        messages: document.getElementById("messages"),
+        status: document.getElementById("status"),
+        continue: document.getElementById("continue"),
+        file: document.getElementById("file"),
+      };
+
+      els.token.value = state.token;
+
+      function addMessage(kind, text, approvalId) {
+        const div = document.createElement("div");
+        div.className = `msg ${approvalId ? "approval" : kind}`;
+        div.textContent = text;
+
+        if (approvalId) {
+          const actions = document.createElement("div");
+          actions.className = "approval-actions";
+
+          const approveBtn = document.createElement("button");
+          approveBtn.className = "btn-approve";
+          approveBtn.textContent = "Approve";
+          approveBtn.onclick = () => {
+            state.ws.send(JSON.stringify({ type: "approval", approvalId, action: "approve" }));
+            approveBtn.disabled = true;
+            denyBtn.disabled = true;
+            approveBtn.textContent = "Approved";
+          };
+
+          const denyBtn = document.createElement("button");
+          denyBtn.className = "btn-deny";
+          denyBtn.textContent = "Deny";
+          denyBtn.onclick = () => {
+            state.ws.send(JSON.stringify({ type: "approval", approvalId, action: "deny" }));
+            approveBtn.disabled = true;
+            denyBtn.disabled = true;
+            denyBtn.textContent = "Denied";
+          };
+
+          actions.appendChild(approveBtn);
+          actions.appendChild(denyBtn);
+          div.appendChild(actions);
+        }
+
+        els.messages.appendChild(div);
+        els.messages.scrollTop = els.messages.scrollHeight;
+      }
+
+      async function api(path, options = {}) {
+        const headers = {
+          Authorization: `Bearer ${state.token}`,
+          ...(options.headers || {}),
+        };
+        if (!(options.body instanceof FormData) && !headers["Content-Type"] && !headers["content-type"]) {
+          headers["Content-Type"] = "application/json";
+        }
+
+        const res = await fetch(path, {
+          ...options,
+          headers,
+        });
+        return res.json();
+      }
+
+      async function loadProjects() {
+        const data = await api("/api/projects");
+        state.projects = data.projects || [];
+        els.project.innerHTML = "";
+        for (const p of state.projects) {
+          const opt = document.createElement("option");
+          opt.value = p.alias;
+          opt.textContent = `${p.alias} — ${p.description || p.path}`;
+          els.project.appendChild(opt);
+        }
+      }
+
+      function connectWs() {
+        if (state.ws) state.ws.close();
+        const proto = location.protocol === "https:" ? "wss" : "ws";
+        state.ws = new WebSocket(`${proto}://${location.host}`);
+        state.ws.onopen = () => {
+          els.status.textContent = "Connected";
+          state.ws.send(JSON.stringify({ type: "auth", token: state.token }));
+        };
+        state.ws.onmessage = (event) => {
+          const msg = JSON.parse(event.data);
+          if (msg.type === "result") {
+            addMessage("bot", msg.summary || "(empty result)");
+          } else if (msg.type === "error") {
+            addMessage("bot", `Error: ${msg.error}`);
+          } else if (msg.type === "approval_needed") {
+            addMessage("bot", `Approval needed: ${msg.description}`, msg.approvalId);
+          } else if (msg.type === "task_update") {
+            if (msg.status === "done") {
+              addMessage("bot", msg.summary || `Task ${msg.taskId} completed.`);
+            } else if (msg.status === "failed") {
+              addMessage("bot", `Task failed${msg.error ? ` (${msg.error})` : ""}. ${msg.summary || ""}`);
+            } else if (msg.status === "needs_approval") {
+              addMessage("bot", `Task ${msg.taskId} needs approval. ${msg.summary || ""}`);
+            }
+            // Skip queued/running text updates (UI just shows status indicator)
+            els.status.textContent = `${msg.taskId?.slice(0, 8)}: ${msg.status}`;
+          }
+        };
+        state.ws.onclose = () => {
+          els.status.textContent = "Disconnected";
+        };
+      }
+
+      async function uploadIfSelected() {
+        const file = els.file.files?.[0];
+        if (!file) return null;
+
+        const form = new FormData();
+        form.append("project", els.project.value);
+        form.append("file", file, file.name);
+
+        const result = await api("/api/upload", {
+          method: "POST",
+          body: form,
+        });
+
+        if (!result.id) {
+          throw new Error(result.error || "upload_failed");
+        }
+
+        return result.id;
+      }
+
+      async function sendMessage() {
+        const project = els.project.value;
+        const prompt = els.prompt.value.trim();
+        if (!project || !prompt) return;
+
+        let extra = "";
+        try {
+          const uploadId = await uploadIfSelected();
+          if (uploadId) {
+            extra = `\n\n[Attached file reference: ${uploadId}]`;
+          }
+        } catch (err) {
+          addMessage("bot", `Upload error: ${err.message || err}`);
+          return;
+        }
+
+        addMessage("user", prompt);
+        state.ws.send(
+          JSON.stringify({
+            type: "message",
+            project,
+            prompt: `${prompt}${extra}`,
+            continue: els.continue.checked,
+          }),
+        );
+        els.prompt.value = "";
+        els.file.value = "";
+      }
+
+      els.connect.onclick = async () => {
+        state.token = els.token.value.trim();
+        localStorage.setItem("rw_token", state.token);
+        await loadProjects();
+        connectWs();
+      };
+
+      els.send.onclick = sendMessage;
+      els.prompt.addEventListener("keydown", (e) => {
+        if ((e.metaKey || e.ctrlKey) && e.key === "Enter") sendMessage();
+      });
+    </script>
+  </body>
+</html>

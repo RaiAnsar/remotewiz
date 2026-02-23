@@ -1,0 +1,129 @@
+import Anthropic from "@anthropic-ai/sdk";
+import type { SummarizerInput } from "../types.js";
+import { redactSecrets } from "../utils/redact.js";
+
+class TokenBucket {
+  private tokens: number;
+  private lastRefill: number;
+
+  constructor(
+    private readonly capacity: number,
+    private readonly refillPerMs: number,
+  ) {
+    this.tokens = capacity;
+    this.lastRefill = Date.now();
+  }
+
+  allow(): boolean {
+    const now = Date.now();
+    const elapsed = now - this.lastRefill;
+    if (elapsed > 0) {
+      this.tokens = Math.min(this.capacity, this.tokens + elapsed * this.refillPerMs);
+      this.lastRefill = now;
+    }
+
+    if (this.tokens < 1) {
+      return false;
+    }
+
+    this.tokens -= 1;
+    return true;
+  }
+}
+
+const SYSTEM_PROMPT = [
+  "Summarize this Claude Code output for someone reading on their phone.",
+  "Use exactly this format:",
+  "",
+  "**Status**: success | partial | failed",
+  "**Changes**: bullet list of files modified/created/deleted",
+  "**Verified**: what was tested or checked (build, lint, tests)",
+  "**Issues**: any errors, warnings, or skipped items",
+  "**Next**: suggested follow-up actions if any",
+  "**Tokens**: X / Y budget used",
+  "",
+  "If there are any 'Actions during approved replay' listed in the input,",
+  "add a **Replay** section listing exactly what actions were taken with elevated permissions.",
+  "This is critical for security auditability.",
+  "",
+  "Keep total response under 300 words.",
+].join("\n");
+
+export class Summarizer {
+  private readonly bucket = new TokenBucket(10, 10 / 60_000);
+  private readonly anthropic?: Anthropic;
+
+  constructor(
+    apiKey: string | undefined,
+    private readonly enabled: boolean,
+  ) {
+    if (enabled && apiKey) {
+      this.anthropic = new Anthropic({ apiKey });
+    }
+  }
+
+  async summarize(input: SummarizerInput): Promise<string> {
+    const redactedRaw = redactSecrets(input.rawText);
+
+    if (!this.enabled || !this.anthropic) {
+      return this.fallback(redactedRaw, input);
+    }
+
+    if (!this.bucket.allow()) {
+      return this.fallback(redactedRaw, input);
+    }
+
+    const body = [
+      `Tokens used: ${input.tokensUsed} / ${input.tokenBudget}`,
+      input.replayActions && input.replayActions.length > 0
+        ? `Actions during approved replay: ${input.replayActions.join(", ")}`
+        : "Actions during approved replay: none",
+      input.toolSummary.length > 0 ? `Tool summary:\n- ${input.toolSummary.join("\n- ")}` : "Tool summary: none",
+      "",
+      "Raw output:",
+      redactedRaw.slice(0, 120_000),
+    ].join("\n");
+
+    try {
+      const response = await this.anthropic.messages.create({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 800,
+        temperature: 0,
+        system: SYSTEM_PROMPT,
+        messages: [{ role: "user", content: body }],
+      });
+
+      const text = response.content
+        .map((chunk) => (chunk.type === "text" ? chunk.text : ""))
+        .join("\n")
+        .trim();
+
+      if (!text) {
+        return this.fallback(redactedRaw, input);
+      }
+      return redactSecrets(text);
+    } catch {
+      return this.fallback(redactedRaw, input);
+    }
+  }
+
+  private fallback(raw: string, input: SummarizerInput): string {
+    const lines = raw
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .slice(-18);
+
+    const body = lines.join("\n").slice(0, 2000);
+    return [
+      "**Status**: partial",
+      `**Changes**: ${input.toolSummary.length > 0 ? input.toolSummary.join("; ") : "Not fully parsed"}`,
+      "**Verified**: Not fully parsed",
+      "**Issues**: Summarizer unavailable or rate-limited",
+      "**Next**: Review raw output excerpt below",
+      `**Tokens**: ${input.tokensUsed} / ${input.tokenBudget}`,
+      "",
+      body,
+    ].join("\n");
+  }
+}
