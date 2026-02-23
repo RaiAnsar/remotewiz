@@ -95,6 +95,35 @@ if [ ! -f "$INSTALL_DIR/.env" ]; then
   fi
 
   ok "Generated WEB_AUTH_TOKEN (saved to .env)"
+
+  # Auto-detect ANTHROPIC_API_KEY
+  DETECTED_KEY=""
+  DETECTED_SOURCE=""
+
+  if [ -n "${ANTHROPIC_API_KEY:-}" ]; then
+    DETECTED_KEY="$ANTHROPIC_API_KEY"
+    DETECTED_SOURCE="environment variable"
+  else
+    for rc_file in "$HOME/.zshrc" "$HOME/.bashrc" "$HOME/.bash_profile" "$HOME/.zprofile" "$HOME/.profile"; do
+      if [ -f "$rc_file" ]; then
+        found=$(grep -E "^export ANTHROPIC_API_KEY=" "$rc_file" 2>/dev/null | head -1 | sed "s/^export ANTHROPIC_API_KEY=[\"']*//" | sed "s/[\"']*$//" || true)
+        if [ -n "$found" ]; then
+          DETECTED_KEY="$found"
+          DETECTED_SOURCE="$(basename "$rc_file")"
+          break
+        fi
+      fi
+    done
+  fi
+
+  if [ -n "$DETECTED_KEY" ]; then
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+      sed -i '' "s/^ANTHROPIC_API_KEY=$/ANTHROPIC_API_KEY=${DETECTED_KEY}/" "$INSTALL_DIR/.env"
+    else
+      sed -i "s/^ANTHROPIC_API_KEY=$/ANTHROPIC_API_KEY=${DETECTED_KEY}/" "$INSTALL_DIR/.env"
+    fi
+    ok "Auto-detected ANTHROPIC_API_KEY from ${DETECTED_SOURCE}"
+  fi
 else
   ok "Existing .env preserved"
 fi
@@ -102,6 +131,7 @@ fi
 # ── PATH Setup ───────────────────────────────────────────────────────────────
 
 chmod +x "$INSTALL_DIR/bin/remotewiz"
+chmod +x "$INSTALL_DIR/bin/remotewiz-configure"
 
 LINKED=false
 
@@ -162,7 +192,7 @@ echo ""
 printf "  ${GREEN}${BOLD}Installation complete!${NC}\n"
 echo ""
 info "Next steps:"
-echo "  1. Edit ${INSTALL_DIR}/.env  — add DISCORD_TOKEN, ANTHROPIC_API_KEY"
-echo "  2. Edit ${INSTALL_DIR}/config.json — add your project paths"
-echo "  3. Run: remotewiz"
+echo "  1. Run: remotewiz configure    — interactive setup wizard"
+echo "  2. Or edit manually: ${INSTALL_DIR}/.env + config.json"
+echo "  3. Start: remotewiz"
 echo ""

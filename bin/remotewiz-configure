@@ -1,0 +1,414 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+REMOTEWIZ_HOME="${REMOTEWIZ_HOME:-$HOME/.remote-wiz}"
+ENV_FILE="$REMOTEWIZ_HOME/.env"
+CONFIG_FILE="$REMOTEWIZ_HOME/config.json"
+
+# ── Colors ──────────────────────────────────────────────────────────────────
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
+BOLD='\033[1m'
+DIM='\033[2m'
+NC='\033[0m'
+
+ok()   { printf "  ${GREEN}✓${NC} %s\n" "$*"; }
+warn() { printf "  ${YELLOW}!${NC} %s\n" "$*"; }
+info() { printf "  ${BOLD}%s${NC}\n" "$*"; }
+
+# ── Helpers ─────────────────────────────────────────────────────────────────
+
+env_get() {
+  local key="$1"
+  if [ -f "$ENV_FILE" ]; then
+    grep -E "^${key}=" "$ENV_FILE" 2>/dev/null | head -1 | sed "s/^${key}=//"
+  fi
+}
+
+env_set() {
+  local key="$1" value="$2"
+  if [ ! -f "$ENV_FILE" ]; then
+    echo "${key}=${value}" > "$ENV_FILE"
+    return
+  fi
+  if grep -qE "^${key}=" "$ENV_FILE" 2>/dev/null; then
+    # Replace existing line — handle both macOS and Linux sed
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+      sed -i '' "s|^${key}=.*|${key}=${value}|" "$ENV_FILE"
+    else
+      sed -i "s|^${key}=.*|${key}=${value}|" "$ENV_FILE"
+    fi
+  else
+    echo "${key}=${value}" >> "$ENV_FILE"
+  fi
+}
+
+prompt_with_default() {
+  local label="$1" default="${2:-}"
+  if [ -n "$default" ]; then
+    printf "  ${label} ${DIM}[${default}]${NC}: "
+  else
+    printf "  ${label}: "
+  fi
+  read -r input
+  echo "${input:-$default}"
+}
+
+prompt_secret() {
+  local label="$1" default="${2:-}"
+  local masked=""
+  if [ -n "$default" ]; then
+    masked="${default:0:4}...${default: -4}"
+    printf "  ${label} ${DIM}[${masked}]${NC}: "
+  else
+    printf "  ${label}: "
+  fi
+  read -rs input
+  echo ""  # newline after hidden input
+  echo "${input:-$default}"
+}
+
+mask_value() {
+  local val="$1"
+  if [ ${#val} -le 8 ]; then
+    echo "****"
+  else
+    echo "${val:0:4}...${val: -4}"
+  fi
+}
+
+detect_anthropic_key() {
+  # 1. Check current env var
+  if [ -n "${ANTHROPIC_API_KEY:-}" ]; then
+    echo "env:$ANTHROPIC_API_KEY"
+    return 0
+  fi
+
+  # 2. Scan shell rc files
+  local rc_files=("$HOME/.zshrc" "$HOME/.bashrc" "$HOME/.bash_profile" "$HOME/.zprofile" "$HOME/.profile")
+  for rc in "${rc_files[@]}"; do
+    if [ -f "$rc" ]; then
+      local found
+      found=$(grep -E "^export ANTHROPIC_API_KEY=" "$rc" 2>/dev/null | head -1 | sed "s/^export ANTHROPIC_API_KEY=[\"']*//" | sed "s/[\"']*$//")
+      if [ -n "$found" ]; then
+        echo "$(basename "$rc"):$found"
+        return 0
+      fi
+    fi
+  done
+
+  return 1
+}
+
+expand_path() {
+  local p="$1"
+  # Expand ~ to $HOME
+  p="${p/#\~/$HOME}"
+  echo "$p"
+}
+
+# ── Prerequisite Check ──────────────────────────────────────────────────────
+
+if [ ! -f "$ENV_FILE" ]; then
+  printf "  ${RED}✗${NC} .env not found at ${ENV_FILE}\n"
+  echo "  Run the installer first: curl -fsSL https://raw.githubusercontent.com/raiansar/remotewiz/main/install.sh | bash"
+  exit 1
+fi
+
+if [ ! -f "$CONFIG_FILE" ]; then
+  echo '{ "projects": {} }' > "$CONFIG_FILE"
+fi
+
+# ── Banner ──────────────────────────────────────────────────────────────────
+
+echo ""
+printf "  ${BOLD}RemoteWiz Configuration Wizard${NC}\n"
+echo "  ==============================="
+echo ""
+
+# ═════════════════════════════════════════════════════════════════════════════
+# Section 1/3: Anthropic API Key
+# ═════════════════════════════════════════════════════════════════════════════
+
+printf "  ${CYAN}[1/3]${NC} ${BOLD}Anthropic API Key${NC}\n"
+echo ""
+
+current_key=$(env_get "ANTHROPIC_API_KEY")
+
+if [ -n "$current_key" ]; then
+  ok "Already set: $(mask_value "$current_key")"
+  change=$(prompt_with_default "Change it? (y/n)" "n")
+  if [[ "$change" =~ ^[Yy] ]]; then
+    new_key=$(prompt_secret "New API key")
+    if [ -n "$new_key" ]; then
+      env_set "ANTHROPIC_API_KEY" "$new_key"
+      ok "Updated ANTHROPIC_API_KEY"
+    fi
+  fi
+else
+  # Try auto-detection
+  detected=""
+  if detected_result=$(detect_anthropic_key); then
+    source="${detected_result%%:*}"
+    detected="${detected_result#*:}"
+    echo ""
+    ok "Auto-detected from ${source}: $(mask_value "$detected")"
+    use_it=$(prompt_with_default "Use this key? (y/n)" "y")
+    if [[ "$use_it" =~ ^[Yy] ]]; then
+      env_set "ANTHROPIC_API_KEY" "$detected"
+      ok "Saved ANTHROPIC_API_KEY from ${source}"
+    else
+      new_key=$(prompt_secret "Enter API key manually (or Enter to skip)")
+      if [ -n "$new_key" ]; then
+        env_set "ANTHROPIC_API_KEY" "$new_key"
+        ok "Saved ANTHROPIC_API_KEY"
+      else
+        warn "Skipped — set it later in .env"
+      fi
+    fi
+  else
+    echo ""
+    warn "Not detected in environment or shell config"
+    new_key=$(prompt_secret "Enter API key (or Enter to skip)")
+    if [ -n "$new_key" ]; then
+      env_set "ANTHROPIC_API_KEY" "$new_key"
+      ok "Saved ANTHROPIC_API_KEY"
+    else
+      warn "Skipped — set it later in .env"
+    fi
+  fi
+fi
+
+echo ""
+
+# ═════════════════════════════════════════════════════════════════════════════
+# Section 2/3: Discord Configuration
+# ═════════════════════════════════════════════════════════════════════════════
+
+printf "  ${CYAN}[2/3]${NC} ${BOLD}Discord Configuration${NC}\n"
+echo ""
+
+setup_discord=$(prompt_with_default "Configure Discord bot? (y/n)" "n")
+
+if [[ "$setup_discord" =~ ^[Yy] ]]; then
+  echo ""
+
+  # Bot Token
+  current_token=$(env_get "DISCORD_TOKEN")
+  new_token=$(prompt_secret "Bot token" "$current_token")
+  if [ -n "$new_token" ]; then
+    env_set "DISCORD_TOKEN" "$new_token"
+  fi
+
+  # Guild ID
+  current_guild=$(env_get "DISCORD_GUILD_ID")
+  new_guild=$(prompt_with_default "Guild (server) ID" "$current_guild")
+  if [ -n "$new_guild" ]; then
+    env_set "DISCORD_GUILD_ID" "$new_guild"
+  fi
+
+  # Channel IDs
+  current_channels=$(env_get "DISCORD_CHANNEL_IDS")
+  echo ""
+  info "Channel IDs — comma-separated, or blank for all channels"
+  new_channels=$(prompt_with_default "Channel IDs" "$current_channels")
+  env_set "DISCORD_CHANNEL_IDS" "$new_channels"
+
+  # Allowed Users
+  current_users=$(env_get "DISCORD_ALLOWED_USERS")
+  echo ""
+  info "Allowed user IDs — comma-separated, or blank to allow all"
+  new_users=$(prompt_with_default "Allowed user IDs" "$current_users")
+  env_set "DISCORD_ALLOWED_USERS" "$new_users"
+
+  echo ""
+  ok "Discord configuration saved"
+else
+  echo ""
+  ok "Skipped Discord — web-only mode"
+fi
+
+echo ""
+
+# ═════════════════════════════════════════════════════════════════════════════
+# Section 3/3: Projects
+# ═════════════════════════════════════════════════════════════════════════════
+
+printf "  ${CYAN}[3/3]${NC} ${BOLD}Projects${NC}\n"
+echo ""
+
+# Show current projects
+current_projects=$(node -e "
+  const cfg = JSON.parse(require('fs').readFileSync('$CONFIG_FILE','utf8'));
+  const names = Object.keys(cfg.projects || {});
+  if (names.length === 0) { console.log('(none)'); }
+  else { names.forEach(n => {
+    const p = cfg.projects[n];
+    console.log('  ' + n + ' → ' + p.path + (p.description ? ' (' + p.description + ')' : ''));
+  }); }
+")
+
+info "Current projects:"
+echo "$current_projects"
+echo ""
+
+while true; do
+  printf "  ${BOLD}Action:${NC} ${DIM}[a]dd  [e]dit  [d]elete  [done]${NC}: "
+  read -r action
+
+  case "${action,,}" in
+    a|add)
+      name=$(prompt_with_default "Project name (slug)")
+      if [ -z "$name" ]; then
+        warn "Name cannot be empty"
+        continue
+      fi
+
+      raw_path=$(prompt_with_default "Project path")
+      proj_path=$(expand_path "$raw_path")
+      if [ ! -d "$proj_path" ]; then
+        warn "Directory does not exist: $proj_path"
+        create_dir=$(prompt_with_default "Continue anyway? (y/n)" "n")
+        if [[ ! "$create_dir" =~ ^[Yy] ]]; then
+          continue
+        fi
+      fi
+
+      description=$(prompt_with_default "Description (optional)" "")
+
+      node -e "
+        const fs = require('fs');
+        const cfg = JSON.parse(fs.readFileSync('$CONFIG_FILE','utf8'));
+        cfg.projects = cfg.projects || {};
+        cfg.projects[process.argv[1]] = {
+          path: process.argv[2],
+          description: process.argv[3] || '',
+          tokenBudget: 150000,
+          timeout: 600000,
+          skipPermissions: false
+        };
+        fs.writeFileSync('$CONFIG_FILE', JSON.stringify(cfg, null, 2) + '\n');
+      " "$name" "$proj_path" "$description"
+
+      ok "Added project: $name → $proj_path"
+      echo ""
+      ;;
+
+    e|edit)
+      edit_name=$(prompt_with_default "Project name to edit")
+      exists=$(node -e "
+        const cfg = JSON.parse(require('fs').readFileSync('$CONFIG_FILE','utf8'));
+        console.log((cfg.projects || {})[process.argv[1]] ? 'yes' : 'no');
+      " "$edit_name")
+
+      if [ "$exists" != "yes" ]; then
+        warn "Project not found: $edit_name"
+        continue
+      fi
+
+      current_path=$(node -e "
+        const cfg = JSON.parse(require('fs').readFileSync('$CONFIG_FILE','utf8'));
+        console.log(cfg.projects[process.argv[1]].path);
+      " "$edit_name")
+      current_desc=$(node -e "
+        const cfg = JSON.parse(require('fs').readFileSync('$CONFIG_FILE','utf8'));
+        console.log(cfg.projects[process.argv[1]].description || '');
+      " "$edit_name")
+
+      raw_path=$(prompt_with_default "Project path" "$current_path")
+      new_path=$(expand_path "$raw_path")
+      new_desc=$(prompt_with_default "Description" "$current_desc")
+
+      node -e "
+        const fs = require('fs');
+        const cfg = JSON.parse(fs.readFileSync('$CONFIG_FILE','utf8'));
+        cfg.projects[process.argv[1]].path = process.argv[2];
+        cfg.projects[process.argv[1]].description = process.argv[3] || '';
+        fs.writeFileSync('$CONFIG_FILE', JSON.stringify(cfg, null, 2) + '\n');
+      " "$edit_name" "$new_path" "$new_desc"
+
+      ok "Updated project: $edit_name"
+      echo ""
+      ;;
+
+    d|delete)
+      del_name=$(prompt_with_default "Project name to delete")
+      exists=$(node -e "
+        const cfg = JSON.parse(require('fs').readFileSync('$CONFIG_FILE','utf8'));
+        console.log((cfg.projects || {})[process.argv[1]] ? 'yes' : 'no');
+      " "$del_name")
+
+      if [ "$exists" != "yes" ]; then
+        warn "Project not found: $del_name"
+        continue
+      fi
+
+      confirm=$(prompt_with_default "Delete '$del_name'? (y/n)" "n")
+      if [[ "$confirm" =~ ^[Yy] ]]; then
+        node -e "
+          const fs = require('fs');
+          const cfg = JSON.parse(fs.readFileSync('$CONFIG_FILE','utf8'));
+          delete cfg.projects[process.argv[1]];
+          fs.writeFileSync('$CONFIG_FILE', JSON.stringify(cfg, null, 2) + '\n');
+        " "$del_name"
+        ok "Deleted project: $del_name"
+      fi
+      echo ""
+      ;;
+
+    done|"")
+      break
+      ;;
+
+    *)
+      warn "Unknown action: $action"
+      ;;
+  esac
+done
+
+echo ""
+
+# ═════════════════════════════════════════════════════════════════════════════
+# Summary
+# ═════════════════════════════════════════════════════════════════════════════
+
+printf "  ${GREEN}${BOLD}Configuration complete!${NC}\n"
+echo ""
+info "Summary:"
+
+# API Key
+final_key=$(env_get "ANTHROPIC_API_KEY")
+if [ -n "$final_key" ]; then
+  ok "Anthropic API Key: $(mask_value "$final_key")"
+else
+  warn "Anthropic API Key: (not set)"
+fi
+
+# Discord
+final_token=$(env_get "DISCORD_TOKEN")
+if [ -n "$final_token" ]; then
+  ok "Discord: configured (token $(mask_value "$final_token"))"
+else
+  printf "  ${DIM}  Discord: not configured${NC}\n"
+fi
+
+# Projects
+echo ""
+info "Projects:"
+node -e "
+  const cfg = JSON.parse(require('fs').readFileSync('$CONFIG_FILE','utf8'));
+  const names = Object.keys(cfg.projects || {});
+  if (names.length === 0) { console.log('  (none)'); }
+  else { names.forEach(n => {
+    const p = cfg.projects[n];
+    console.log('  \x1b[32m✓\x1b[0m ' + n + ' → ' + p.path);
+  }); }
+"
+
+echo ""
+info "Start the server:"
+echo "  remotewiz"
+echo ""
