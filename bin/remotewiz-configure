@@ -240,133 +240,92 @@ echo ""
 printf "  ${CYAN}[3/3]${NC} ${BOLD}Projects${NC}\n"
 echo ""
 
-# Show current projects
-current_projects=$(node -e "
+# Clean out example placeholder if it still exists
+node -e "
+  const fs = require('fs');
+  const cfg = JSON.parse(fs.readFileSync('$CONFIG_FILE','utf8'));
+  const p = cfg.projects || {};
+  let changed = false;
+  for (const [k, v] of Object.entries(p)) {
+    if (v.path === '/absolute/path/to/your/project') { delete p[k]; changed = true; }
+  }
+  if (changed) { cfg.projects = p; fs.writeFileSync('$CONFIG_FILE', JSON.stringify(cfg, null, 2) + '\n'); }
+"
+
+# Show existing real projects
+real_count=$(node -e "
   const cfg = JSON.parse(require('fs').readFileSync('$CONFIG_FILE','utf8'));
   const names = Object.keys(cfg.projects || {});
-  if (names.length === 0) { console.log('(none)'); }
-  else { names.forEach(n => {
-    const p = cfg.projects[n];
-    console.log('  ' + n + ' → ' + p.path + (p.description ? ' (' + p.description + ')' : ''));
-  }); }
+  console.log(names.length);
 ")
 
-info "Current projects:"
-echo "$current_projects"
-echo ""
+if [ "$real_count" -gt 0 ]; then
+  info "Current projects:"
+  node -e "
+    const cfg = JSON.parse(require('fs').readFileSync('$CONFIG_FILE','utf8'));
+    Object.entries(cfg.projects || {}).forEach(([n, p]) => {
+      console.log('  \x1b[32m✓\x1b[0m ' + n + ' → ' + p.path + (p.description ? ' (' + p.description + ')' : ''));
+    });
+  "
+  echo ""
+fi
+
+# Add projects loop
+if [ "$real_count" -eq 0 ]; then
+  info "Add your project directories so RemoteWiz can manage them."
+  echo ""
+fi
 
 while true; do
-  printf "  ${BOLD}Action:${NC} ${DIM}[a]dd  [e]dit  [d]elete  [done]${NC}: "
-  read -r action
-
-  case "${action,,}" in
-    a|add)
-      name=$(prompt_with_default "Project name (slug)")
-      if [ -z "$name" ]; then
-        warn "Name cannot be empty"
-        continue
-      fi
-
-      raw_path=$(prompt_with_default "Project path")
-      proj_path=$(expand_path "$raw_path")
-      if [ ! -d "$proj_path" ]; then
-        warn "Directory does not exist: $proj_path"
-        create_dir=$(prompt_with_default "Continue anyway? (y/n)" "n")
-        if [[ ! "$create_dir" =~ ^[Yy] ]]; then
-          continue
-        fi
-      fi
-
-      description=$(prompt_with_default "Description (optional)" "")
-
-      node -e "
-        const fs = require('fs');
-        const cfg = JSON.parse(fs.readFileSync('$CONFIG_FILE','utf8'));
-        cfg.projects = cfg.projects || {};
-        cfg.projects[process.argv[1]] = {
-          path: process.argv[2],
-          description: process.argv[3] || '',
-          tokenBudget: 150000,
-          timeout: 600000,
-          skipPermissions: false
-        };
-        fs.writeFileSync('$CONFIG_FILE', JSON.stringify(cfg, null, 2) + '\n');
-      " "$name" "$proj_path" "$description"
-
-      ok "Added project: $name → $proj_path"
-      echo ""
-      ;;
-
-    e|edit)
-      edit_name=$(prompt_with_default "Project name to edit")
-      exists=$(node -e "
-        const cfg = JSON.parse(require('fs').readFileSync('$CONFIG_FILE','utf8'));
-        console.log((cfg.projects || {})[process.argv[1]] ? 'yes' : 'no');
-      " "$edit_name")
-
-      if [ "$exists" != "yes" ]; then
-        warn "Project not found: $edit_name"
-        continue
-      fi
-
-      current_path=$(node -e "
-        const cfg = JSON.parse(require('fs').readFileSync('$CONFIG_FILE','utf8'));
-        console.log(cfg.projects[process.argv[1]].path);
-      " "$edit_name")
-      current_desc=$(node -e "
-        const cfg = JSON.parse(require('fs').readFileSync('$CONFIG_FILE','utf8'));
-        console.log(cfg.projects[process.argv[1]].description || '');
-      " "$edit_name")
-
-      raw_path=$(prompt_with_default "Project path" "$current_path")
-      new_path=$(expand_path "$raw_path")
-      new_desc=$(prompt_with_default "Description" "$current_desc")
-
-      node -e "
-        const fs = require('fs');
-        const cfg = JSON.parse(fs.readFileSync('$CONFIG_FILE','utf8'));
-        cfg.projects[process.argv[1]].path = process.argv[2];
-        cfg.projects[process.argv[1]].description = process.argv[3] || '';
-        fs.writeFileSync('$CONFIG_FILE', JSON.stringify(cfg, null, 2) + '\n');
-      " "$edit_name" "$new_path" "$new_desc"
-
-      ok "Updated project: $edit_name"
-      echo ""
-      ;;
-
-    d|delete)
-      del_name=$(prompt_with_default "Project name to delete")
-      exists=$(node -e "
-        const cfg = JSON.parse(require('fs').readFileSync('$CONFIG_FILE','utf8'));
-        console.log((cfg.projects || {})[process.argv[1]] ? 'yes' : 'no');
-      " "$del_name")
-
-      if [ "$exists" != "yes" ]; then
-        warn "Project not found: $del_name"
-        continue
-      fi
-
-      confirm=$(prompt_with_default "Delete '$del_name'? (y/n)" "n")
-      if [[ "$confirm" =~ ^[Yy] ]]; then
-        node -e "
-          const fs = require('fs');
-          const cfg = JSON.parse(fs.readFileSync('$CONFIG_FILE','utf8'));
-          delete cfg.projects[process.argv[1]];
-          fs.writeFileSync('$CONFIG_FILE', JSON.stringify(cfg, null, 2) + '\n');
-        " "$del_name"
-        ok "Deleted project: $del_name"
-      fi
-      echo ""
-      ;;
-
-    done|"")
+  if [ "$real_count" -gt 0 ]; then
+    add_more=$(prompt_with_default "Add another project? (y/n)" "n")
+    if [[ ! "$add_more" =~ ^[Yy] ]]; then
       break
-      ;;
+    fi
+  fi
 
-    *)
-      warn "Unknown action: $action"
-      ;;
-  esac
+  name=$(prompt_with_default "Project name (short slug, e.g. my-app)")
+  if [ -z "$name" ]; then
+    if [ "$real_count" -eq 0 ]; then
+      warn "Skipped — add projects later in config.json"
+    fi
+    break
+  fi
+
+  raw_path=$(prompt_with_default "Path to project directory")
+  if [ -z "$raw_path" ]; then
+    warn "Path cannot be empty, skipping"
+    continue
+  fi
+  proj_path=$(expand_path "$raw_path")
+
+  if [ ! -d "$proj_path" ]; then
+    warn "Directory not found: $proj_path"
+    keep_going=$(prompt_with_default "Save anyway? (y/n)" "n")
+    if [[ ! "$keep_going" =~ ^[Yy] ]]; then
+      continue
+    fi
+  fi
+
+  description=$(prompt_with_default "Description (optional)" "")
+
+  node -e "
+    const fs = require('fs');
+    const cfg = JSON.parse(fs.readFileSync('$CONFIG_FILE','utf8'));
+    cfg.projects = cfg.projects || {};
+    cfg.projects[process.argv[1]] = {
+      path: process.argv[2],
+      description: process.argv[3] || '',
+      tokenBudget: 150000,
+      timeout: 600000,
+      skipPermissions: false
+    };
+    fs.writeFileSync('$CONFIG_FILE', JSON.stringify(cfg, null, 2) + '\n');
+  " "$name" "$proj_path" "$description"
+
+  ok "Added: $name → $proj_path"
+  echo ""
+  real_count=$((real_count + 1))
 done
 
 echo ""
