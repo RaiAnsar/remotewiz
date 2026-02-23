@@ -62,9 +62,11 @@ export class WebAdapter implements Adapter {
     await new Promise<void>((resolve) => {
       this.httpServer.listen(this.runtimeConfig.webPort, this.runtimeConfig.webBindHost, () => {
         this.started = true;
-        logInfo(
-          `Web adapter listening on http://${this.runtimeConfig.webBindHost}:${this.runtimeConfig.webPort}`,
-        );
+        const base = `http://${this.runtimeConfig.webBindHost}:${this.runtimeConfig.webPort}`;
+        logInfo(`Web adapter listening on ${base}`);
+        if (this.runtimeConfig.webAuthToken) {
+          logInfo(`Web UI: ${base}?token=${this.runtimeConfig.webAuthToken}`);
+        }
         resolve();
       });
     });

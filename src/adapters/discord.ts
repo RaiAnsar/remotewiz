@@ -167,11 +167,93 @@ export class DiscordAdapter implements Adapter {
       return;
     }
 
-    if (!message.channel.isThread()) {
+    // Handle messages inside existing threads
+    if (message.channel.isThread()) {
+      if (!isAllowedChannel(this.runtimeConfig, message.channel.parentId ?? undefined)) {
+        return;
+      }
+      await this.handleThreadMessage(message);
       return;
     }
 
-    if (!isAllowedChannel(this.runtimeConfig, message.channel.parentId ?? undefined)) {
+    // Handle messages in regular channels (mentions or direct messages)
+    if (message.channel.type === ChannelType.GuildText) {
+      if (!isAllowedChannel(this.runtimeConfig, message.channel.id)) {
+        return;
+      }
+
+      // Only respond if the bot is mentioned
+      if (!message.mentions.has(this.client.user!)) {
+        return;
+      }
+
+      // Strip the mention from the prompt
+      const prompt = message.content.replace(/<@!?\d+>/g, "").trim();
+      if (!prompt) {
+        await message.reply("Tag me with a message and I'll create a task thread. Example: `@RemoteWiz fix the login bug`");
+        return;
+      }
+
+      // Auto-select project: if only one, use it; otherwise ask
+      const projects = this.app.getProjects();
+      if (projects.length === 0) {
+        await message.reply("No projects configured. Add projects with `remotewiz configure`.");
+        return;
+      }
+
+      let projectAlias: string;
+      if (projects.length === 1) {
+        projectAlias = projects[0].alias;
+      } else {
+        // Check if the user prefixed with a project name, e.g. "@Bot desktop: fix the bug"
+        const colonMatch = prompt.match(/^(\S+):\s*(.*)/s);
+        const spaceMatch = prompt.match(/^(\S+)\s+(.*)/s);
+        const matchedProject = colonMatch
+          ? projects.find((p) => p.alias === colonMatch[1])
+          : undefined;
+
+        if (matchedProject && colonMatch) {
+          projectAlias = matchedProject.alias;
+          // We'll use the full prompt including project prefix — Claude can handle it
+        } else {
+          const list = projects.map((p) => `\`${p.alias}\``).join(", ");
+          await message.reply(`Multiple projects available: ${list}\nPrefix your message with the project name, e.g. \`@RemoteWiz desktop: fix the bug\``);
+          return;
+        }
+      }
+
+      // Create a thread from this message
+      const threadName = `${projectAlias}-${Date.now().toString(36)}`;
+      const thread = await message.startThread({
+        name: threadName,
+        autoArchiveDuration: 1440,
+      });
+
+      // Bind thread to project
+      this.app.bindThread(thread.id, projectAlias, "discord", message.author.id);
+      await thread.send(`Bound to project \`${projectAlias}\`. Processing your task...`);
+
+      // Store reference for emoji reactions
+      this.threadMessages.set(thread.id, message);
+
+      try {
+        await this.app.enqueueTask({
+          projectAlias,
+          prompt,
+          threadId: thread.id,
+          adapter: "discord",
+          continueSession: false,
+          actorId: message.author.id,
+        });
+      } catch (error) {
+        await thread.send(`Failed to queue task: ${error instanceof Error ? error.message : "unknown error"}`);
+      }
+      return;
+    }
+  }
+
+  private async handleThreadMessage(message: Message): Promise<void> {
+    if (!message.channel.isThread()) {
       return;
     }
 

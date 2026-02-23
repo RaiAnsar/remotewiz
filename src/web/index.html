@@ -7,143 +7,707 @@
     <style>
       :root {
         --bg: #0a0f1c;
-        --panel: #121a2f;
-        --accent: #35c2ff;
+        --panel: #111827;
+        --panel-hover: #1a2340;
+        --surface: #0d1220;
+        --accent: #38bdf8;
+        --accent-dim: rgba(56, 189, 248, 0.12);
+        --accent-glow: rgba(56, 189, 248, 0.25);
         --text: #e7eefc;
-        --muted: #97a6c5;
-        --danger: #ff6b6b;
-        --ok: #6ee7b7;
+        --muted: #6b7fa3;
+        --border: #1e2d4d;
+        --danger: #f87171;
+        --ok: #34d399;
+        --warn: #fbbf24;
+        --radius: 12px;
       }
-      * { box-sizing: border-box; }
+
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+
       body {
-        margin: 0;
-        font-family: "SF Mono", "JetBrains Mono", Menlo, monospace;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
         color: var(--text);
-        background: radial-gradient(circle at 20% 10%, #1b2753 0%, var(--bg) 40%), var(--bg);
+        background: var(--bg);
+        height: 100vh;
+        overflow: hidden;
       }
+
+      /* ── Layout ──────────────────────────────────────────────── */
       .app {
-        min-height: 100vh;
         display: grid;
-        grid-template-rows: auto 1fr auto;
-        max-width: 980px;
-        margin: 0 auto;
-        padding: 12px;
-        gap: 12px;
+        grid-template-columns: 260px 1fr;
+        height: 100vh;
       }
-      .topbar,
-      .composer,
-      .panel {
-        background: color-mix(in oklab, var(--panel) 92%, black 8%);
-        border: 1px solid #27345b;
-        border-radius: 14px;
-      }
-      .topbar {
-        padding: 10px;
-        display: grid;
-        grid-template-columns: 1fr auto;
-        gap: 10px;
-      }
-      select,input,textarea,button {
-        background: #0d1430;
-        border: 1px solid #2a3a6e;
-        color: var(--text);
-        border-radius: 10px;
-        padding: 10px;
-        font: inherit;
-      }
-      button {
-        cursor: pointer;
-      }
-      button.primary {
-        background: linear-gradient(120deg, #2ab6ff, #00e4b6);
-        color: #041017;
-        border: none;
-        font-weight: 700;
-      }
-      .panel {
-        padding: 12px;
-        overflow: auto;
-      }
-      .msg {
-        border: 1px solid #2b3a67;
-        border-radius: 10px;
-        padding: 10px;
-        margin-bottom: 8px;
-        white-space: pre-wrap;
-      }
-      .msg.user { border-color: #2f6b8e; }
-      .msg.bot { border-color: #2c8159; }
-      .msg.approval { border-color: #c4a035; }
-      .muted { color: var(--muted); }
-      .approval-actions { margin-top: 8px; display: flex; gap: 8px; }
-      .approval-actions button { padding: 6px 16px; font-size: 13px; border-radius: 8px; }
-      .btn-approve { background: var(--ok); color: #041017; border: none; font-weight: 700; }
-      .btn-deny { background: var(--danger); color: #041017; border: none; font-weight: 700; }
-      .btn-approve:disabled, .btn-deny:disabled { opacity: 0.4; cursor: default; }
-      .composer {
-        display: grid;
-        gap: 10px;
-        padding: 10px;
-      }
-      .row {
+
+      /* ── Sidebar ─────────────────────────────────────────────── */
+      .sidebar {
+        background: var(--panel);
+        border-right: 1px solid var(--border);
         display: flex;
-        gap: 8px;
-        align-items: center;
+        flex-direction: column;
+        overflow: hidden;
       }
-      .status {
+
+      .sidebar-header {
+        padding: 20px 16px 12px;
+        border-bottom: 1px solid var(--border);
+      }
+
+      .logo {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 12px;
+      }
+
+      .logo-icon {
+        width: 32px;
+        height: 32px;
+        border-radius: 10px;
+        background: linear-gradient(135deg, #38bdf8, #818cf8);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 16px;
+        font-weight: 800;
+        color: #fff;
+      }
+
+      .logo-text {
+        font-size: 16px;
+        font-weight: 700;
+        letter-spacing: -0.02em;
+      }
+
+      .connection-badge {
+        display: flex;
+        align-items: center;
+        gap: 6px;
         font-size: 12px;
         color: var(--muted);
+        padding: 6px 10px;
+        border-radius: 8px;
+        background: var(--surface);
+      }
+
+      .connection-dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: var(--danger);
+        flex-shrink: 0;
+      }
+
+      .connection-dot.connected {
+        background: var(--ok);
+        box-shadow: 0 0 6px var(--ok);
+      }
+
+      .sidebar-section {
+        padding: 12px;
+        flex: 1;
+        overflow-y: auto;
+      }
+
+      .sidebar-section-title {
+        font-size: 10px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--muted);
+        padding: 0 4px 8px;
+      }
+
+      .project-list {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+
+      .project-item {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 10px 12px;
+        border-radius: 10px;
+        cursor: pointer;
+        transition: background 0.15s;
+        border: 1px solid transparent;
+      }
+
+      .project-item:hover {
+        background: var(--panel-hover);
+      }
+
+      .project-item.active {
+        background: var(--accent-dim);
+        border-color: rgba(56, 189, 248, 0.2);
+      }
+
+      .project-icon {
+        width: 32px;
+        height: 32px;
+        border-radius: 8px;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 14px;
+        flex-shrink: 0;
+      }
+
+      .project-info {
+        overflow: hidden;
+        flex: 1;
+      }
+
+      .project-name {
+        font-size: 13px;
+        font-weight: 600;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .project-path {
+        font-size: 11px;
+        color: var(--muted);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .sidebar-footer {
+        padding: 12px;
+        border-top: 1px solid var(--border);
+      }
+
+      .token-row {
+        display: flex;
+        gap: 6px;
+      }
+
+      .token-input {
+        flex: 1;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        color: var(--text);
+        border-radius: 8px;
+        padding: 8px 10px;
+        font-size: 12px;
+        font-family: "SF Mono", "JetBrains Mono", Menlo, monospace;
+        outline: none;
+        transition: border-color 0.15s;
+      }
+
+      .token-input:focus {
+        border-color: var(--accent);
+      }
+
+      .token-input.hidden-section {
+        display: none;
+      }
+
+      .btn {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        color: var(--text);
+        border-radius: 8px;
+        padding: 8px 14px;
+        font-size: 12px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.15s;
+        white-space: nowrap;
+      }
+
+      .btn:hover {
+        background: var(--panel-hover);
+        border-color: var(--accent);
+      }
+
+      .btn-primary {
+        background: linear-gradient(135deg, #38bdf8, #818cf8);
+        border: none;
+        color: #fff;
+      }
+
+      .btn-primary:hover {
+        opacity: 0.9;
+        border: none;
+      }
+
+      /* ── Main Chat Area ──────────────────────────────────────── */
+      .main {
+        display: flex;
+        flex-direction: column;
+        height: 100vh;
+        overflow: hidden;
+      }
+
+      .main-header {
+        padding: 16px 24px;
+        border-bottom: 1px solid var(--border);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        background: var(--panel);
+        flex-shrink: 0;
+      }
+
+      .main-header-left {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+
+      .hamburger {
+        display: none;
+        background: none;
+        border: none;
+        color: var(--text);
+        font-size: 20px;
+        cursor: pointer;
+        padding: 4px;
+      }
+
+      .current-project-name {
+        font-size: 15px;
+        font-weight: 700;
+      }
+
+      .task-status {
+        font-size: 12px;
+        color: var(--muted);
+        font-family: "SF Mono", "JetBrains Mono", Menlo, monospace;
+      }
+
+      .main-header-right {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .continue-toggle {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 12px;
+        color: var(--muted);
+        cursor: pointer;
+      }
+
+      .continue-toggle input {
+        accent-color: var(--accent);
+      }
+
+      /* ── Messages ────────────────────────────────────────────── */
+      .messages {
+        flex: 1;
+        overflow-y: auto;
+        padding: 20px 24px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+
+      .messages:empty::before {
+        content: "Select a project and send a message to get started.";
+        color: var(--muted);
+        font-size: 14px;
+        text-align: center;
+        margin: auto;
+        padding: 40px;
+      }
+
+      .msg {
+        max-width: 85%;
+        padding: 12px 16px;
+        border-radius: var(--radius);
+        font-size: 14px;
+        line-height: 1.6;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+
+      .msg.user {
+        align-self: flex-end;
+        background: linear-gradient(135deg, rgba(56, 189, 248, 0.15), rgba(129, 140, 248, 0.15));
+        border: 1px solid rgba(56, 189, 248, 0.25);
+      }
+
+      .msg.bot {
+        align-self: flex-start;
+        background: var(--panel);
+        border: 1px solid var(--border);
+      }
+
+      .msg.approval {
+        align-self: flex-start;
+        background: rgba(251, 191, 36, 0.08);
+        border: 1px solid rgba(251, 191, 36, 0.25);
+      }
+
+      .approval-actions {
+        margin-top: 10px;
+        display: flex;
+        gap: 8px;
+      }
+
+      .btn-approve {
+        background: var(--ok);
+        color: #041017;
+        border: none;
+        border-radius: 8px;
+        padding: 6px 16px;
+        font-size: 12px;
+        font-weight: 700;
+        cursor: pointer;
+      }
+
+      .btn-deny {
+        background: var(--danger);
+        color: #041017;
+        border: none;
+        border-radius: 8px;
+        padding: 6px 16px;
+        font-size: 12px;
+        font-weight: 700;
+        cursor: pointer;
+      }
+
+      .btn-approve:disabled, .btn-deny:disabled {
+        opacity: 0.4;
+        cursor: default;
+      }
+
+      /* ── Composer ─────────────────────────────────────────────── */
+      .composer {
+        padding: 16px 24px;
+        border-top: 1px solid var(--border);
+        background: var(--panel);
+        flex-shrink: 0;
+      }
+
+      .composer-inner {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        overflow: hidden;
+        transition: border-color 0.15s;
+      }
+
+      .composer-inner:focus-within {
+        border-color: var(--accent);
+        box-shadow: 0 0 0 3px var(--accent-dim);
+      }
+
+      .composer textarea {
+        width: 100%;
+        background: transparent;
+        border: none;
+        color: var(--text);
+        padding: 14px 16px;
+        font-size: 14px;
+        font-family: inherit;
+        resize: none;
+        outline: none;
+        line-height: 1.5;
+      }
+
+      .composer textarea::placeholder {
+        color: var(--muted);
+      }
+
+      .composer-actions {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 8px 12px;
+        border-top: 1px solid var(--border);
+      }
+
+      .composer-left {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .file-label {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        padding: 6px 10px;
+        border-radius: 6px;
+        font-size: 12px;
+        color: var(--muted);
+        cursor: pointer;
+        transition: background 0.15s;
+      }
+
+      .file-label:hover {
+        background: var(--panel-hover);
+        color: var(--text);
+      }
+
+      .file-label input[type="file"] {
+        display: none;
+      }
+
+      .shortcut-hint {
+        font-size: 11px;
+        color: var(--muted);
+      }
+
+      .send-btn {
+        background: linear-gradient(135deg, #38bdf8, #818cf8);
+        border: none;
+        color: #fff;
+        border-radius: 8px;
+        padding: 8px 20px;
+        font-size: 13px;
+        font-weight: 700;
+        cursor: pointer;
+        transition: opacity 0.15s;
+      }
+
+      .send-btn:hover {
+        opacity: 0.9;
+      }
+
+      .send-btn:disabled {
+        opacity: 0.4;
+        cursor: default;
+      }
+
+      /* ── Mobile Overlay ──────────────────────────────────────── */
+      .sidebar-overlay {
+        display: none;
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.5);
+        z-index: 90;
+      }
+
+      /* ── Responsive ──────────────────────────────────────────── */
+      @media (max-width: 768px) {
+        .app {
+          grid-template-columns: 1fr;
+        }
+
+        .sidebar {
+          position: fixed;
+          left: -280px;
+          top: 0;
+          bottom: 0;
+          width: 280px;
+          z-index: 100;
+          transition: left 0.25s ease;
+        }
+
+        .sidebar.open {
+          left: 0;
+        }
+
+        .sidebar-overlay.open {
+          display: block;
+        }
+
+        .hamburger {
+          display: block;
+        }
+
+        .messages {
+          padding: 16px;
+        }
+
+        .composer {
+          padding: 12px 16px;
+        }
+
+        .msg {
+          max-width: 95%;
+        }
+      }
+
+      /* ── Scrollbar ───────────────────────────────────────────── */
+      ::-webkit-scrollbar {
+        width: 6px;
+      }
+
+      ::-webkit-scrollbar-track {
+        background: transparent;
+      }
+
+      ::-webkit-scrollbar-thumb {
+        background: var(--border);
+        border-radius: 3px;
+      }
+
+      ::-webkit-scrollbar-thumb:hover {
+        background: var(--muted);
       }
     </style>
   </head>
   <body>
     <div class="app">
-      <div class="topbar">
-        <div class="row">
-          <label for="project">Project</label>
-          <select id="project"></select>
-          <label><input id="continue" type="checkbox" /> Continue</label>
+      <!-- Sidebar Overlay (mobile) -->
+      <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+      <!-- Sidebar -->
+      <div class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+          <div class="logo">
+            <div class="logo-icon">R</div>
+            <span class="logo-text">RemoteWiz</span>
+          </div>
+          <div class="connection-badge">
+            <span class="connection-dot" id="connectionDot"></span>
+            <span id="connectionText">Disconnected</span>
+          </div>
         </div>
-        <div class="row">
-          <input id="token" type="password" placeholder="WEB_AUTH_TOKEN" />
-          <button id="connect" class="primary">Connect</button>
+
+        <div class="sidebar-section">
+          <div class="sidebar-section-title">Projects</div>
+          <div class="project-list" id="projectList">
+            <div style="padding: 12px; color: var(--muted); font-size: 12px;">Connect to see projects</div>
+          </div>
+        </div>
+
+        <div class="sidebar-footer">
+          <div class="token-row" id="tokenRow">
+            <input id="token" type="password" class="token-input" placeholder="Paste auth token..." />
+            <button id="connect" class="btn btn-primary">Connect</button>
+          </div>
         </div>
       </div>
 
-      <div id="messages" class="panel"></div>
+      <!-- Main Area -->
+      <div class="main">
+        <div class="main-header">
+          <div class="main-header-left">
+            <button class="hamburger" id="hamburger">&#9776;</button>
+            <span class="current-project-name" id="currentProjectName">No project selected</span>
+          </div>
+          <div class="main-header-right">
+            <span class="task-status" id="taskStatus"></span>
+            <label class="continue-toggle">
+              <input id="continue" type="checkbox" />
+              Continue session
+            </label>
+          </div>
+        </div>
 
-      <div class="composer">
-        <textarea id="prompt" rows="4" placeholder="Ask RemoteWiz to do work..."></textarea>
-        <div class="row">
-          <input id="file" type="file" />
-          <button id="send" class="primary">Send</button>
-          <span id="status" class="status">Disconnected</span>
+        <div class="messages" id="messages"></div>
+
+        <div class="composer">
+          <div class="composer-inner">
+            <textarea id="prompt" rows="3" placeholder="Describe your task..."></textarea>
+            <div class="composer-actions">
+              <div class="composer-left">
+                <label class="file-label">
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 10v2.67A1.33 1.33 0 0 1 12.67 14H3.33A1.33 1.33 0 0 1 2 12.67V10M11.33 5.33 8 2 4.67 5.33M8 2v8"/></svg>
+                  <span id="fileName">Attach file</span>
+                  <input id="file" type="file" />
+                </label>
+                <span class="shortcut-hint">&#8984;+Enter to send</span>
+              </div>
+              <button id="send" class="send-btn">Send</button>
+            </div>
+          </div>
         </div>
       </div>
     </div>
 
     <script>
+      // ── Token auto-detection from URL param ─────────────────
+      const _urlParams = new URLSearchParams(window.location.search);
+      if (_urlParams.has("token")) {
+        localStorage.setItem("rw_token", _urlParams.get("token"));
+        window.history.replaceState({}, "", window.location.pathname);
+      }
+
+      // ── State ───────────────────────────────────────────────
       const state = {
         ws: null,
         token: localStorage.getItem("rw_token") || "",
         projects: [],
-        pendingUploadId: null,
+        selectedProject: localStorage.getItem("rw_project") || "",
+        connected: false,
       };
 
+      // ── DOM refs ────────────────────────────────────────────
       const els = {
-        project: document.getElementById("project"),
         token: document.getElementById("token"),
+        tokenRow: document.getElementById("tokenRow"),
         connect: document.getElementById("connect"),
-        send: document.getElementById("send"),
-        prompt: document.getElementById("prompt"),
+        connectionDot: document.getElementById("connectionDot"),
+        connectionText: document.getElementById("connectionText"),
+        projectList: document.getElementById("projectList"),
+        currentProjectName: document.getElementById("currentProjectName"),
+        taskStatus: document.getElementById("taskStatus"),
         messages: document.getElementById("messages"),
-        status: document.getElementById("status"),
-        continue: document.getElementById("continue"),
+        prompt: document.getElementById("prompt"),
+        send: document.getElementById("send"),
         file: document.getElementById("file"),
+        fileName: document.getElementById("fileName"),
+        continue: document.getElementById("continue"),
+        sidebar: document.getElementById("sidebar"),
+        sidebarOverlay: document.getElementById("sidebarOverlay"),
+        hamburger: document.getElementById("hamburger"),
       };
 
       els.token.value = state.token;
 
+      // ── Connection status ───────────────────────────────────
+      function setConnectionStatus(connected) {
+        state.connected = connected;
+        els.connectionDot.classList.toggle("connected", connected);
+        els.connectionText.textContent = connected ? "Connected" : "Disconnected";
+        if (connected) {
+          els.token.classList.add("hidden-section");
+          els.connect.textContent = "Disconnect";
+        } else {
+          els.token.classList.remove("hidden-section");
+          els.connect.textContent = "Connect";
+        }
+      }
+
+      // ── Project rendering ───────────────────────────────────
+      function renderProjects() {
+        els.projectList.innerHTML = "";
+        if (state.projects.length === 0) {
+          els.projectList.innerHTML = '<div style="padding: 12px; color: var(--muted); font-size: 12px;">No projects configured</div>';
+          return;
+        }
+
+        for (const p of state.projects) {
+          const item = document.createElement("div");
+          item.className = "project-item" + (state.selectedProject === p.alias ? " active" : "");
+          item.innerHTML = `
+            <div class="project-icon">${p.alias.charAt(0).toUpperCase()}</div>
+            <div class="project-info">
+              <div class="project-name">${esc(p.alias)}</div>
+              <div class="project-path">${esc(p.description || p.path)}</div>
+            </div>
+          `;
+          item.onclick = () => selectProject(p.alias);
+          els.projectList.appendChild(item);
+        }
+      }
+
+      function selectProject(alias) {
+        state.selectedProject = alias;
+        localStorage.setItem("rw_project", alias);
+        els.currentProjectName.textContent = alias;
+        renderProjects();
+        // Close sidebar on mobile
+        els.sidebar.classList.remove("open");
+        els.sidebarOverlay.classList.remove("open");
+      }
+
+      // ── Messages ────────────────────────────────────────────
       function addMessage(kind, text, approvalId) {
         const div = document.createElement("div");
         div.className = `msg ${approvalId ? "approval" : kind}`;
@@ -182,6 +746,7 @@
         els.messages.scrollTop = els.messages.scrollHeight;
       }
 
+      // ── API ─────────────────────────────────────────────────
       async function api(path, options = {}) {
         const headers = {
           Authorization: `Bearer ${state.token}`,
@@ -190,36 +755,53 @@
         if (!(options.body instanceof FormData) && !headers["Content-Type"] && !headers["content-type"]) {
           headers["Content-Type"] = "application/json";
         }
-
-        const res = await fetch(path, {
-          ...options,
-          headers,
-        });
+        const res = await fetch(path, { ...options, headers });
         return res.json();
       }
 
       async function loadProjects() {
-        const data = await api("/api/projects");
-        state.projects = data.projects || [];
-        els.project.innerHTML = "";
-        for (const p of state.projects) {
-          const opt = document.createElement("option");
-          opt.value = p.alias;
-          opt.textContent = `${p.alias} — ${p.description || p.path}`;
-          els.project.appendChild(opt);
+        try {
+          const data = await api("/api/projects");
+          state.projects = data.projects || [];
+          renderProjects();
+          // Auto-select first project or restore last
+          if (state.projects.length > 0) {
+            const found = state.projects.find(p => p.alias === state.selectedProject);
+            if (!found) {
+              selectProject(state.projects[0].alias);
+            } else {
+              selectProject(found.alias);
+            }
+          }
+        } catch (err) {
+          addMessage("bot", `Failed to load projects: ${err.message || err}`);
         }
       }
 
+      // ── WebSocket ───────────────────────────────────────────
       function connectWs() {
         if (state.ws) state.ws.close();
         const proto = location.protocol === "https:" ? "wss" : "ws";
         state.ws = new WebSocket(`${proto}://${location.host}`);
+
         state.ws.onopen = () => {
-          els.status.textContent = "Connected";
           state.ws.send(JSON.stringify({ type: "auth", token: state.token }));
         };
+
         state.ws.onmessage = (event) => {
           const msg = JSON.parse(event.data);
+
+          if (msg.type === "authed") {
+            setConnectionStatus(true);
+            return;
+          }
+
+          if (msg.type === "error" && msg.error === "unauthorized") {
+            setConnectionStatus(false);
+            addMessage("bot", "Authentication failed. Check your token.");
+            return;
+          }
+
           if (msg.type === "result") {
             addMessage("bot", msg.summary || "(empty result)");
           } else if (msg.type === "error") {
@@ -229,80 +811,124 @@
           } else if (msg.type === "task_update") {
             if (msg.status === "done") {
               addMessage("bot", msg.summary || `Task ${msg.taskId} completed.`);
+              els.taskStatus.textContent = "";
             } else if (msg.status === "failed") {
               addMessage("bot", `Task failed${msg.error ? ` (${msg.error})` : ""}. ${msg.summary || ""}`);
+              els.taskStatus.textContent = "";
             } else if (msg.status === "needs_approval") {
               addMessage("bot", `Task ${msg.taskId} needs approval. ${msg.summary || ""}`);
+              els.taskStatus.textContent = "Awaiting approval";
+            } else if (msg.status === "running") {
+              els.taskStatus.textContent = "Running...";
+            } else if (msg.status === "queued") {
+              els.taskStatus.textContent = "Queued";
             }
-            // Skip queued/running text updates (UI just shows status indicator)
-            els.status.textContent = `${msg.taskId?.slice(0, 8)}: ${msg.status}`;
           }
         };
+
         state.ws.onclose = () => {
-          els.status.textContent = "Disconnected";
+          setConnectionStatus(false);
         };
       }
 
+      function disconnect() {
+        if (state.ws) {
+          state.ws.close();
+          state.ws = null;
+        }
+        setConnectionStatus(false);
+      }
+
+      // ── Upload ──────────────────────────────────────────────
       async function uploadIfSelected() {
         const file = els.file.files?.[0];
         if (!file) return null;
 
         const form = new FormData();
-        form.append("project", els.project.value);
+        form.append("project", state.selectedProject);
         form.append("file", file, file.name);
 
-        const result = await api("/api/upload", {
-          method: "POST",
-          body: form,
-        });
-
-        if (!result.id) {
-          throw new Error(result.error || "upload_failed");
-        }
-
+        const result = await api("/api/upload", { method: "POST", body: form });
+        if (!result.id) throw new Error(result.error || "upload_failed");
         return result.id;
       }
 
+      // ── Send ────────────────────────────────────────────────
       async function sendMessage() {
-        const project = els.project.value;
+        const project = state.selectedProject;
         const prompt = els.prompt.value.trim();
-        if (!project || !prompt) return;
+        if (!project || !prompt || !state.connected) return;
 
         let extra = "";
         try {
           const uploadId = await uploadIfSelected();
-          if (uploadId) {
-            extra = `\n\n[Attached file reference: ${uploadId}]`;
-          }
+          if (uploadId) extra = `\n\n[Attached file reference: ${uploadId}]`;
         } catch (err) {
           addMessage("bot", `Upload error: ${err.message || err}`);
           return;
         }
 
         addMessage("user", prompt);
-        state.ws.send(
-          JSON.stringify({
-            type: "message",
-            project,
-            prompt: `${prompt}${extra}`,
-            continue: els.continue.checked,
-          }),
-        );
+        state.ws.send(JSON.stringify({
+          type: "message",
+          project,
+          prompt: `${prompt}${extra}`,
+          continue: els.continue.checked,
+        }));
         els.prompt.value = "";
         els.file.value = "";
+        els.fileName.textContent = "Attach file";
       }
 
+      // ── Event bindings ──────────────────────────────────────
       els.connect.onclick = async () => {
+        if (state.connected) {
+          disconnect();
+          return;
+        }
         state.token = els.token.value.trim();
+        if (!state.token) return;
         localStorage.setItem("rw_token", state.token);
         await loadProjects();
         connectWs();
       };
 
       els.send.onclick = sendMessage;
+
       els.prompt.addEventListener("keydown", (e) => {
         if ((e.metaKey || e.ctrlKey) && e.key === "Enter") sendMessage();
       });
+
+      els.file.addEventListener("change", () => {
+        const file = els.file.files?.[0];
+        els.fileName.textContent = file ? file.name : "Attach file";
+      });
+
+      // Mobile sidebar toggle
+      els.hamburger.onclick = () => {
+        els.sidebar.classList.toggle("open");
+        els.sidebarOverlay.classList.toggle("open");
+      };
+
+      els.sidebarOverlay.onclick = () => {
+        els.sidebar.classList.remove("open");
+        els.sidebarOverlay.classList.remove("open");
+      };
+
+      // ── Helpers ─────────────────────────────────────────────
+      function esc(str) {
+        const d = document.createElement("div");
+        d.textContent = str;
+        return d.innerHTML;
+      }
+
+      // ── Auto-connect on load ────────────────────────────────
+      if (state.token) {
+        (async () => {
+          await loadProjects();
+          connectWs();
+        })();
+      }
     </script>
   </body>
 </html>
