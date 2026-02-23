@@ -49,9 +49,9 @@ env_set() {
 prompt_with_default() {
   local label="$1" default="${2:-}"
   if [ -n "$default" ]; then
-    printf "  ${label} ${DIM}[${default}]${NC}: "
+    printf "  ${label} ${DIM}[${default}]${NC}: " >&2
   else
-    printf "  ${label}: "
+    printf "  ${label}: " >&2
   fi
   read -r input
   echo "${input:-$default}"
@@ -62,12 +62,12 @@ prompt_secret() {
   local masked=""
   if [ -n "$default" ]; then
     masked="${default:0:4}...${default: -4}"
-    printf "  ${label} ${DIM}[${masked}]${NC}: "
+    printf "  ${label} ${DIM}[${masked}]${NC}: " >&2
   else
-    printf "  ${label}: "
+    printf "  ${label}: " >&2
   fi
   read -rs input
-  echo ""  # newline after hidden input
+  echo "" >&2  # newline after hidden input
   echo "${input:-$default}"
 }
 
