@@ -338,22 +338,22 @@ pick_project_path() {
   done < <(discover_dirs)
 
   if [ ${#discovered[@]} -gt 0 ]; then
-    echo ""
-    info "Detected project directories:"
+    echo "" >&2
+    info "Detected project directories:" >&2
     local i=1
     local show_count=${#discovered[@]}
     [ "$show_count" -gt 15 ] && show_count=15
     for ((idx=0; idx<show_count; idx++)); do
       local d="${discovered[$idx]}"
       local short="${d/#$HOME/~}"
-      printf "  ${CYAN}%2d${NC}) %s\n" "$i" "$short"
+      printf "  ${CYAN}%2d${NC}) %s\n" "$i" "$short" >&2
       i=$((i + 1))
     done
     if [ ${#discovered[@]} -gt 15 ]; then
-      printf "  ${DIM}   ... and %d more${NC}\n" $(( ${#discovered[@]} - 15 ))
+      printf "  ${DIM}   ... and %d more${NC}\n" $(( ${#discovered[@]} - 15 )) >&2
     fi
-    printf "  ${CYAN}%2d${NC}) ${DIM}Enter custom path${NC}\n" "$i"
-    echo ""
+    printf "  ${CYAN}%2d${NC}) ${DIM}Enter custom path${NC}\n" "$i" >&2
+    echo "" >&2
 
     local choice
     choice=$(prompt_with_default "Pick a number")
