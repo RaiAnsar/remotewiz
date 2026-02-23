@@ -150,6 +150,7 @@ export interface ParsedStreamOutcome {
 
 export interface SummarizerInput {
   rawText: string;
+  assistantText?: string;
   toolSummary: string[];
   tokensUsed: number;
   tokenBudget: number;

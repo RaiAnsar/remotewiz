@@ -108,22 +108,59 @@ export class Summarizer {
   }
 
   private fallback(raw: string, input: SummarizerInput): string {
-    const lines = raw
-      .split("\n")
-      .map((line) => line.trim())
-      .filter(Boolean)
-      .slice(-18);
+    // Prefer the clean assistant text over raw stream-json
+    const displayText = input.assistantText?.trim() || this.extractReadableText(raw);
+    const body = displayText.slice(0, 1800);
 
-    const body = lines.join("\n").slice(0, 2000);
-    return [
-      "**Status**: partial",
-      `**Changes**: ${input.toolSummary.length > 0 ? input.toolSummary.join("; ") : "Not fully parsed"}`,
-      "**Verified**: Not fully parsed",
-      "**Issues**: Summarizer unavailable or rate-limited",
-      "**Next**: Review raw output excerpt below",
+    const parts = [
       `**Tokens**: ${input.tokensUsed} / ${input.tokenBudget}`,
-      "",
-      body,
-    ].join("\n");
+    ];
+
+    if (input.toolSummary.length > 0) {
+      parts.push(`**Tools**: ${input.toolSummary.join("; ")}`);
+    }
+
+    if (body) {
+      parts.push("", body);
+    } else {
+      parts.push("", "(No readable output captured)");
+    }
+
+    return parts.join("\n");
+  }
+
+  private extractReadableText(raw: string): string {
+    // Try to extract assistant text from raw stream-json lines
+    const lines = raw.split("\n").filter(Boolean);
+    const texts: string[] = [];
+
+    for (const line of lines) {
+      try {
+        const parsed = JSON.parse(line);
+        // Skip system/hook events
+        if (parsed.type === "system" || parsed.subtype?.startsWith("hook")) continue;
+        // Extract result text
+        if (parsed.result && typeof parsed.result === "string") {
+          texts.push(parsed.result);
+        }
+        // Extract assistant messages
+        if ((parsed.role === "assistant" || parsed.type === "assistant") && parsed.content) {
+          if (typeof parsed.content === "string") {
+            texts.push(parsed.content);
+          } else if (Array.isArray(parsed.content)) {
+            for (const block of parsed.content) {
+              if (block.type === "text" && block.text) texts.push(block.text);
+            }
+          }
+        }
+      } catch {
+        // Not JSON — include raw line if it doesn't look like JSON
+        if (!line.startsWith("{")) {
+          texts.push(line);
+        }
+      }
+    }
+
+    return texts.join("\n").trim();
   }
 }

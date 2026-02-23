@@ -427,10 +427,9 @@ export class Worker {
       cwd: realCwd,
       shell: false,
       env: {
-        PATH: process.env.PATH,
-        HOME: process.env.HOME,
-        NODE_ENV: process.env.NODE_ENV,
-        ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
+        ...process.env,
+        // Ensure ANTHROPIC_API_KEY from .env takes precedence
+        ...(process.env.ANTHROPIC_API_KEY ? { ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY } : {}),
       },
       stdio: ["ignore", "pipe", "pipe"],
     });
@@ -652,6 +651,7 @@ export class Worker {
 
     const summary = await this.summarizer.summarize({
       rawText: finalText,
+      assistantText: parsedOutcome.assistantText || undefined,
       toolSummary: parsedOutcome.toolSummary,
       tokensUsed,
       tokenBudget,
@@ -954,6 +954,21 @@ function classifyActionType(text: string): ApprovalActionType {
 }
 
 function extractPermissionDescription(input: string): string {
+  // Try to extract a readable description from JSON stream lines
+  try {
+    const parsed = JSON.parse(input);
+    // Look for human-readable text in common fields
+    const desc =
+      (typeof parsed.result === "string" && parsed.result) ||
+      (typeof parsed.message === "string" && parsed.message) ||
+      (typeof parsed.text === "string" && parsed.text) ||
+      (typeof parsed.description === "string" && parsed.description);
+    if (desc) {
+      return desc.replace(/\s+/g, " ").trim().slice(0, 300);
+    }
+  } catch {
+    // Not JSON — use as-is
+  }
   const cleaned = input.replace(/\s+/g, " ").trim();
   return cleaned.slice(0, 300);
 }
