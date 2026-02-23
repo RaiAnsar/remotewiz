@@ -244,9 +244,10 @@ if [[ "$setup_discord" =~ ^[Yy] ]]; then
 
   # Bot Token
   current_token=$(env_get "DISCORD_TOKEN")
-  new_token=$(prompt_secret "Bot token" "$current_token")
+  new_token=$(prompt_with_default "Bot token" "$current_token")
   if [ -n "$new_token" ]; then
     env_set "DISCORD_TOKEN" "$new_token"
+    ok "Bot token saved"
   fi
 
   # Guild ID
@@ -254,6 +255,7 @@ if [[ "$setup_discord" =~ ^[Yy] ]]; then
   new_guild=$(prompt_with_default "Server (guild) ID" "$current_guild")
   if [ -n "$new_guild" ]; then
     env_set "DISCORD_GUILD_ID" "$new_guild"
+    ok "Guild ID saved"
   fi
 
   # Channel IDs
