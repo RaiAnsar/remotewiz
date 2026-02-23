@@ -222,10 +222,11 @@ export class DiscordAdapter implements Adapter {
         }
       }
 
-      // Create a thread from this message
-      const threadName = `${projectAlias}-${Date.now().toString(36)}`;
+      // Create a thread from this message with a meaningful name
+      const shortPrompt = prompt.slice(0, 80).replace(/\n/g, " ").trim();
+      const threadName = shortPrompt || `${projectAlias} task`;
       const thread = await message.startThread({
-        name: threadName,
+        name: threadName.slice(0, 100),
         autoArchiveDuration: 1440,
       });
 
@@ -496,11 +497,12 @@ async function sendChannelMessage(
   if (!channel || typeof channel !== "object") {
     return;
   }
-  const maybeSend = (channel as { send?: (value: unknown) => Promise<unknown> }).send;
-  if (typeof maybeSend !== "function") {
+  const ch = channel as { send?: (value: { content?: string; embeds?: unknown[]; components?: unknown[] }) => Promise<unknown> };
+  if (typeof ch.send !== "function") {
     return;
   }
-  await maybeSend(payload);
+  const normalized = typeof payload === "string" ? { content: payload } : payload;
+  await ch.send(normalized);
 }
 
 async function sendLongText(channel: unknown, text: string): Promise<void> {
