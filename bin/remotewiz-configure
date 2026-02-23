@@ -160,7 +160,9 @@ echo ""
 current_key=$(env_get "ANTHROPIC_API_KEY")
 
 if [ -n "$current_key" ]; then
-  ok "Already set: $(mask_value "$current_key")"
+  local_masked=$(mask_value "$current_key")
+  ok "Already set: ${local_masked}"
+  echo ""
   change=$(prompt_with_default "Change it? (y/n)" "n")
   if [[ "$change" =~ ^[Yy] ]]; then
     new_key=$(prompt_secret "New API key")
