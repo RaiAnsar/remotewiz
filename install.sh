@@ -100,10 +100,32 @@ if [ ! -f "$INSTALL_DIR/.env" ]; then
   DETECTED_KEY=""
   DETECTED_SOURCE=""
 
+  # 1. Environment variable
   if [ -n "${ANTHROPIC_API_KEY:-}" ]; then
     DETECTED_KEY="$ANTHROPIC_API_KEY"
     DETECTED_SOURCE="environment variable"
-  else
+  fi
+
+  # 2. macOS keychain (Claude CLI OAuth token)
+  if [ -z "$DETECTED_KEY" ] && [[ "$OSTYPE" == "darwin"* ]]; then
+    KEYCHAIN_DATA=$(security find-generic-password -s "Claude Code-credentials" -w 2>/dev/null || true)
+    if [ -n "$KEYCHAIN_DATA" ]; then
+      OAUTH_TOKEN=$(node -e "
+        try {
+          const d = JSON.parse(process.argv[1]);
+          const t = d.claudeAiOauth && d.claudeAiOauth.accessToken;
+          if (t) console.log(t);
+        } catch {}
+      " "$KEYCHAIN_DATA" 2>/dev/null || true)
+      if [ -n "$OAUTH_TOKEN" ]; then
+        DETECTED_KEY="$OAUTH_TOKEN"
+        DETECTED_SOURCE="Claude CLI (keychain)"
+      fi
+    fi
+  fi
+
+  # 3. Shell rc files
+  if [ -z "$DETECTED_KEY" ]; then
     for rc_file in "$HOME/.zshrc" "$HOME/.bashrc" "$HOME/.bash_profile" "$HOME/.zprofile" "$HOME/.profile"; do
       if [ -f "$rc_file" ]; then
         found=$(grep -E "^export ANTHROPIC_API_KEY=" "$rc_file" 2>/dev/null | head -1 | sed "s/^export ANTHROPIC_API_KEY=[\"']*//" | sed "s/[\"']*$//" || true)
