@@ -417,10 +417,10 @@ export class Worker {
     const prompt = this.buildPrompt(task, ctx);
     args.push("-p", prompt);
 
-    // Always skip CLI-level permissions — Claude CLI is non-interactive in --print mode
-    // and cannot prompt for approvals. RemoteWiz handles its own approval system at
-    // a higher level when needed.
-    args.push("--dangerously-skip-permissions");
+    const project = this.appConfig.projects[task.projectAlias];
+    if (ctx.forceSkipPermissions || project?.skipPermissions === true) {
+      args.push("--dangerously-skip-permissions");
+    }
 
     const child = spawn("claude", args, {
       cwd: realCwd,
