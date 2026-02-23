@@ -919,16 +919,49 @@ function detectPermissionDenied(
   parsed: Record<string, unknown>,
   textCandidate: string,
 ): { actionType: ApprovalActionType; description: string } | undefined {
-  const text = textCandidate.toLowerCase();
   const type = typeof parsed.type === "string" ? parsed.type.toLowerCase() : "";
+  const subtype = typeof parsed.subtype === "string" ? parsed.subtype.toLowerCase() : "";
 
-  if (!text.includes("permission") && !type.includes("permission") && !text.includes("denied")) {
+  // Skip system/hook events — they may contain "permission" as a JSON field name
+  if (type === "system" || subtype.startsWith("hook")) {
     return undefined;
   }
 
-  const actionType = classifyActionType(text);
-  const description = extractPermissionDescription(textCandidate);
-  return { actionType, description };
+  // Only match on specific permission-related event types from Claude CLI
+  const isPermissionEvent =
+    type === "permission_request" ||
+    type === "permission_denied" ||
+    type === "tool_use_blocked" ||
+    subtype === "permission_denied" ||
+    subtype === "permission_request";
+
+  if (isPermissionEvent) {
+    const description = extractPermissionDescription(textCandidate);
+    const actionType = classifyActionType(description.toLowerCase());
+    return { actionType, description };
+  }
+
+  // Also check explicit text content (not raw JSON lines) for permission denial
+  if (textCandidate.startsWith("{")) {
+    // This is likely a raw JSON line, not actual text — skip
+    return undefined;
+  }
+
+  const text = textCandidate.toLowerCase();
+  if (
+    (text.includes("permission denied") || text.includes("permission required")) &&
+    !text.includes("permission") // avoid matching just the word in isolation
+  ) {
+    // This guard is redundant but kept for clarity — we need a real phrase match
+  }
+
+  if (text.includes("permission denied") || text.includes("permission required") || text.includes("access denied")) {
+    const actionType = classifyActionType(text);
+    const description = extractPermissionDescription(textCandidate);
+    return { actionType, description };
+  }
+
+  return undefined;
 }
 
 function classifyActionType(text: string): ApprovalActionType {
