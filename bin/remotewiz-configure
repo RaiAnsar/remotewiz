@@ -244,10 +244,22 @@ if [[ "$setup_discord" =~ ^[Yy] ]]; then
 
   # Bot Token
   current_token=$(env_get "DISCORD_TOKEN")
-  new_token=$(prompt_with_default "Bot token" "$current_token")
-  if [ -n "$new_token" ]; then
-    env_set "DISCORD_TOKEN" "$new_token"
-    ok "Bot token saved"
+  if [ -n "$current_token" ]; then
+    local_masked=$(mask_value "$current_token")
+    printf "  Bot token ${DIM}[${local_masked}]${NC} (Enter to keep, or paste new): " >&2
+    read -r new_token_input
+    if [ -n "$new_token_input" ]; then
+      env_set "DISCORD_TOKEN" "$new_token_input"
+      ok "Bot token updated"
+    else
+      ok "Bot token kept"
+    fi
+  else
+    new_token=$(prompt_with_default "Bot token")
+    if [ -n "$new_token" ]; then
+      env_set "DISCORD_TOKEN" "$new_token"
+      ok "Bot token saved"
+    fi
   fi
 
   # Guild ID
@@ -331,90 +343,8 @@ discover_dirs() {
   printf '%s\n' "${dirs[@]}"
 }
 
-pick_project_path() {
-  local discovered=()
-  while IFS= read -r line; do
-    [ -n "$line" ] && discovered+=("$line")
-  done < <(discover_dirs)
-
-  if [ ${#discovered[@]} -gt 0 ]; then
-    echo "" >&2
-    info "Detected project directories:" >&2
-    local i=1
-    local show_count=${#discovered[@]}
-    [ "$show_count" -gt 15 ] && show_count=15
-    for ((idx=0; idx<show_count; idx++)); do
-      local d="${discovered[$idx]}"
-      local short="${d/#$HOME/~}"
-      printf "  ${CYAN}%2d${NC}) %s\n" "$i" "$short" >&2
-      i=$((i + 1))
-    done
-    if [ ${#discovered[@]} -gt 15 ]; then
-      printf "  ${DIM}   ... and %d more${NC}\n" $(( ${#discovered[@]} - 15 )) >&2
-    fi
-    printf "  ${CYAN}%2d${NC}) ${DIM}Enter custom path${NC}\n" "$i" >&2
-    echo "" >&2
-
-    local choice
-    choice=$(prompt_with_default "Pick a number")
-    if [ -n "$choice" ] && [ "$choice" -eq "$choice" ] 2>/dev/null; then
-      if [ "$choice" -ge 1 ] && [ "$choice" -le "$show_count" ]; then
-        echo "${discovered[$((choice - 1))]}"
-        return 0
-      fi
-    fi
-  fi
-
-  # Custom path fallback
-  local raw_path
-  raw_path=$(prompt_with_default "Project path")
-  if [ -n "$raw_path" ]; then
-    expand_path "$raw_path"
-    return 0
-  fi
-  return 1
-}
-
-# Add projects loop
-if [ "$real_count" -eq 0 ]; then
-  info "Add your project directories so RemoteWiz can manage them."
-  echo ""
-fi
-
-while true; do
-  if [ "$real_count" -gt 0 ]; then
-    add_more=$(prompt_with_default "Add another project? (y/n)" "n")
-    if [[ ! "$add_more" =~ ^[Yy] ]]; then
-      break
-    fi
-  fi
-
-  proj_path=""
-  if ! proj_path=$(pick_project_path) || [ -z "$proj_path" ]; then
-    if [ "$real_count" -eq 0 ]; then
-      warn "Skipped — add projects later in config.json"
-    fi
-    break
-  fi
-
-  # Suggest slug from directory name
-  default_name=$(basename "$proj_path" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/--*/-/g' | sed 's/^-//;s/-$//')
-  name=$(prompt_with_default "Project name" "$default_name")
-  if [ -z "$name" ]; then
-    warn "Name cannot be empty, skipping"
-    continue
-  fi
-
-  if [ ! -d "$proj_path" ]; then
-    warn "Directory not found: $proj_path"
-    keep_going=$(prompt_with_default "Save anyway? (y/n)" "n")
-    if [[ ! "$keep_going" =~ ^[Yy] ]]; then
-      continue
-    fi
-  fi
-
-  description=$(prompt_with_default "Description (optional)" "")
-
+add_single_project() {
+  local proj_path="$1" proj_name="$2" proj_desc="${3:-}"
   node -e "
     const fs = require('fs');
     const cfg = JSON.parse(fs.readFileSync('$CONFIG_FILE','utf8'));
@@ -427,11 +357,168 @@ while true; do
       skipPermissions: false
     };
     fs.writeFileSync('$CONFIG_FILE', JSON.stringify(cfg, null, 2) + '\n');
-  " "$name" "$proj_path" "$description"
+  " "$proj_name" "$proj_path" "$proj_desc"
+}
 
-  ok "Added: $name → $proj_path"
+slug_from_path() {
+  basename "$1" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/--*/-/g' | sed 's/^-//;s/-$//'
+}
+
+scan_and_add_dir() {
+  local raw_dir
+  raw_dir=$(prompt_with_default "Directory to scan (e.g. ~/Desktop/Work)")
+  [ -z "$raw_dir" ] && return 1
+  local scan_dir
+  scan_dir=$(expand_path "$raw_dir")
+
+  if [ ! -d "$scan_dir" ]; then
+    warn "Directory not found: $scan_dir"
+    return 1
+  fi
+
+  local found=()
+  for d in "$scan_dir"/*/; do
+    [ -d "$d" ] || continue
+    if [ -d "$d/.git" ] || [ -f "$d/package.json" ] || [ -f "$d/Cargo.toml" ] || [ -f "$d/go.mod" ] || [ -f "$d/pyproject.toml" ] || [ -f "$d/requirements.txt" ] || [ -f "$d/Makefile" ] || [ -f "$d/pom.xml" ] || [ -f "$d/build.gradle" ]; then
+      found+=("${d%/}")
+    fi
+  done
+
+  if [ ${#found[@]} -eq 0 ]; then
+    warn "No projects found in $scan_dir"
+    # Offer to add all subdirs anyway
+    local add_all
+    add_all=$(prompt_with_default "Add ALL subdirectories instead? (y/n)" "n")
+    if [[ "$add_all" =~ ^[Yy] ]]; then
+      for d in "$scan_dir"/*/; do
+        [ -d "$d" ] || continue
+        found+=("${d%/}")
+      done
+    fi
+    [ ${#found[@]} -eq 0 ] && return 1
+  fi
+
   echo ""
-  real_count=$((real_count + 1))
+  info "Found ${#found[@]} projects in ${raw_dir}:"
+  for d in "${found[@]}"; do
+    local short="${d/#$HOME/~}"
+    printf "  ${DIM}•${NC} %s\n" "$short"
+  done
+  echo ""
+
+  local confirm
+  confirm=$(prompt_with_default "Add all ${#found[@]} projects? (y/n)" "y")
+  if [[ ! "$confirm" =~ ^[Yy] ]]; then
+    return 1
+  fi
+
+  local added=0
+  for d in "${found[@]}"; do
+    local name
+    name=$(slug_from_path "$d")
+    add_single_project "$d" "$name" ""
+    ok "Added: $name → ${d/#$HOME/\~}"
+    added=$((added + 1))
+  done
+  real_count=$((real_count + added))
+  echo ""
+  ok "Added $added projects from ${raw_dir}"
+  return 0
+}
+
+# Add projects
+if [ "$real_count" -eq 0 ]; then
+  info "Add your project directories so RemoteWiz can manage them."
+  echo ""
+fi
+
+while true; do
+  if [ "$real_count" -gt 0 ]; then
+    add_more=$(prompt_with_default "Add more projects? (y/n)" "n")
+    if [[ ! "$add_more" =~ ^[Yy] ]]; then
+      break
+    fi
+  fi
+
+  echo ""
+  printf "  ${CYAN}1${NC}) Pick from detected projects\n"
+  printf "  ${CYAN}2${NC}) Scan a directory (bulk add all projects under a path)\n"
+  printf "  ${CYAN}3${NC}) Enter a custom path\n"
+  printf "  ${CYAN}4${NC}) Done\n"
+  echo ""
+
+  mode=$(prompt_with_default "Choose" "1")
+
+  case "$mode" in
+    1)
+      # Show detected projects
+      local_discovered=()
+      while IFS= read -r line; do
+        [ -n "$line" ] && local_discovered+=("$line")
+      done < <(discover_dirs)
+
+      if [ ${#local_discovered[@]} -eq 0 ]; then
+        warn "No projects auto-detected"
+        continue
+      fi
+
+      echo ""
+      local i=1
+      local show_count=${#local_discovered[@]}
+      [ "$show_count" -gt 15 ] && show_count=15
+      for ((idx=0; idx<show_count; idx++)); do
+        local d="${local_discovered[$idx]}"
+        local short="${d/#$HOME/~}"
+        printf "  ${CYAN}%2d${NC}) %s\n" "$i" "$short"
+        i=$((i + 1))
+      done
+      echo ""
+
+      pick=$(prompt_with_default "Pick a number (or Enter to go back)")
+      if [ -n "$pick" ] && [ "$pick" -eq "$pick" ] 2>/dev/null; then
+        if [ "$pick" -ge 1 ] && [ "$pick" -le "$show_count" ]; then
+          proj_path="${local_discovered[$((pick - 1))]}"
+          default_name=$(slug_from_path "$proj_path")
+          name=$(prompt_with_default "Project name" "$default_name")
+          [ -z "$name" ] && continue
+          description=$(prompt_with_default "Description (optional)" "")
+          add_single_project "$proj_path" "$name" "$description"
+          ok "Added: $name → ${proj_path/#$HOME/\~}"
+          real_count=$((real_count + 1))
+        fi
+      fi
+      ;;
+
+    2)
+      scan_and_add_dir
+      ;;
+
+    3)
+      raw_path=$(prompt_with_default "Project path")
+      [ -z "$raw_path" ] && continue
+      proj_path=$(expand_path "$raw_path")
+      if [ ! -d "$proj_path" ]; then
+        warn "Directory not found: $proj_path"
+        keep_going=$(prompt_with_default "Save anyway? (y/n)" "n")
+        [[ ! "$keep_going" =~ ^[Yy] ]] && continue
+      fi
+      default_name=$(slug_from_path "$proj_path")
+      name=$(prompt_with_default "Project name" "$default_name")
+      [ -z "$name" ] && continue
+      description=$(prompt_with_default "Description (optional)" "")
+      add_single_project "$proj_path" "$name" "$description"
+      ok "Added: $name → ${proj_path/#$HOME/\~}"
+      real_count=$((real_count + 1))
+      ;;
+
+    4)
+      break
+      ;;
+
+    *)
+      warn "Invalid choice"
+      ;;
+  esac
 done
 
 echo ""
