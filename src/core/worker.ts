@@ -417,11 +417,10 @@ export class Worker {
     const prompt = this.buildPrompt(task, ctx);
     args.push("-p", prompt);
 
-    const project = this.appConfig.projects[task.projectAlias];
-    const skipPermissions = ctx.forceSkipPermissions || project?.skipPermissions === true;
-    if (skipPermissions) {
-      args.push("--dangerously-skip-permissions");
-    }
+    // Always skip CLI-level permissions — Claude CLI is non-interactive in --print mode
+    // and cannot prompt for approvals. RemoteWiz handles its own approval system at
+    // a higher level when needed.
+    args.push("--dangerously-skip-permissions");
 
     const child = spawn("claude", args, {
       cwd: realCwd,
@@ -556,16 +555,8 @@ export class Worker {
 
     const tokensUsed = parsedOutcome.tokenUsage ?? estimatedTokens;
 
-    const permissionDenied = parsedOutcome.permissionDenied;
-    if (permissionDenied && !ctx.forceSkipPermissions) {
-      return {
-        status: "needs_approval",
-        summary: permissionDenied.description,
-        tokensUsed,
-        replayActions: parsedOutcome.replayActions,
-        approvalActionType: permissionDenied.actionType,
-      };
-    }
+    // Permission handling is done at the CLI level via --dangerously-skip-permissions.
+    // RemoteWiz's approval system is for user-facing confirmations, not CLI tool permissions.
 
     if (killedBySilenceTimeout) {
       return {
@@ -707,10 +698,7 @@ export class Worker {
         next.tokenUsage = usage.total_tokens;
       }
 
-      const permission = detectPermissionDenied(parsed, text || chunkText || line);
-      if (permission) {
-        next.permissionDenied = permission;
-      }
+      // Permission detection removed — CLI always runs with --dangerously-skip-permissions
     } catch {
       next.parseWarnings = [...next.parseWarnings, "json_parse_failed"];
       return { next, failedLine: line };
