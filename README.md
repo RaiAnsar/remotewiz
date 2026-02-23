@@ -2,6 +2,46 @@
 
 RemoteWiz lets you run Claude Code remotely from Discord threads or a lightweight web UI, with per-project routing, approval gates, queueing, and audit logs.
 
+## Install
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/raiansar/remotewiz/main/install.sh | bash
+```
+
+### Prerequisites
+
+- **Node.js 22+** — [nodejs.org](https://nodejs.org)
+- **Claude Code CLI** — `npm install -g @anthropic-ai/claude-code`
+- **git**
+
+### Quick start
+
+```bash
+# 1. Install
+curl -fsSL https://raw.githubusercontent.com/raiansar/remotewiz/main/install.sh | bash
+
+# 2. Add your keys
+edit ~/.remote-wiz/.env          # DISCORD_TOKEN, ANTHROPIC_API_KEY
+
+# 3. Configure projects
+edit ~/.remote-wiz/config.json   # map aliases to repo paths
+
+# 4. Run
+remotewiz
+```
+
+The web UI is available at `http://127.0.0.1:3456` (use the auto-generated `WEB_AUTH_TOKEN` from `.env`).
+
+### Upgrade
+
+Re-run the same curl command. Config files (`.env`, `config.json`) are preserved.
+
+### Custom install location
+
+```bash
+REMOTEWIZ_HOME=/opt/remotewiz curl -fsSL https://raw.githubusercontent.com/raiansar/remotewiz/main/install.sh | bash
+```
+
 ## What it does
 
 - Maps a thread/project to a configured local repo path
@@ -13,13 +53,7 @@ RemoteWiz lets you run Claude Code remotely from Discord threads or a lightweigh
 - Offers a secure web API + WebSocket UI and a Discord bot adapter
 - Supports secure multipart file upload references for prompts
 
-## Requirements
-
-- Node.js 22+
-- Claude Code CLI (`claude`) installed on host
-- Optional: Discord bot token and Anthropic API key
-
-## Quick start
+## Manual setup (without installer)
 
 1. Configure environment:
 

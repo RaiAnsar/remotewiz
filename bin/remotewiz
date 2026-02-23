@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+REMOTEWIZ_HOME="${REMOTEWIZ_HOME:-$HOME/.remote-wiz}"
+cd "$REMOTEWIZ_HOME" && exec node dist/index.js "$@"
