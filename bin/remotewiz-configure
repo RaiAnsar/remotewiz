@@ -229,12 +229,15 @@ echo ""
 # Section 2/3: Discord Configuration
 # ═════════════════════════════════════════════════════════════════════════════
 
-printf "  ${CYAN}[2/3]${NC} ${BOLD}Discord Configuration${NC}\n"
+printf "  ${CYAN}[2/3]${NC} ${BOLD}Discord Bot${NC}\n"
+printf "  ${DIM}Optional — skip if you only use the web UI.${NC}\n"
 echo ""
 
-setup_discord=$(prompt_with_default "Configure Discord bot? (y/n)" "n")
+setup_discord=$(prompt_with_default "Set up Discord bot? (y/n)" "n")
 
 if [[ "$setup_discord" =~ ^[Yy] ]]; then
+  echo ""
+  info "You can find these in the Discord Developer Portal."
   echo ""
 
   # Bot Token
@@ -246,30 +249,25 @@ if [[ "$setup_discord" =~ ^[Yy] ]]; then
 
   # Guild ID
   current_guild=$(env_get "DISCORD_GUILD_ID")
-  new_guild=$(prompt_with_default "Guild (server) ID" "$current_guild")
+  new_guild=$(prompt_with_default "Server (guild) ID" "$current_guild")
   if [ -n "$new_guild" ]; then
     env_set "DISCORD_GUILD_ID" "$new_guild"
   fi
 
   # Channel IDs
   current_channels=$(env_get "DISCORD_CHANNEL_IDS")
-  echo ""
-  info "Channel IDs — comma-separated, or blank for all channels"
-  new_channels=$(prompt_with_default "Channel IDs" "$current_channels")
+  new_channels=$(prompt_with_default "Allowed channel IDs (comma-separated, blank = all)" "$current_channels")
   env_set "DISCORD_CHANNEL_IDS" "$new_channels"
 
   # Allowed Users
   current_users=$(env_get "DISCORD_ALLOWED_USERS")
-  echo ""
-  info "Allowed user IDs — comma-separated, or blank to allow all"
-  new_users=$(prompt_with_default "Allowed user IDs" "$current_users")
+  new_users=$(prompt_with_default "Allowed user IDs (comma-separated, blank = all)" "$current_users")
   env_set "DISCORD_ALLOWED_USERS" "$new_users"
 
   echo ""
-  ok "Discord configuration saved"
+  ok "Discord saved"
 else
-  echo ""
-  ok "Skipped Discord — web-only mode"
+  ok "Skipped — web-only mode"
 fi
 
 echo ""
