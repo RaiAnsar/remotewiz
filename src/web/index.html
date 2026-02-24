@@ -116,6 +116,78 @@
         letter-spacing: 0.08em;
         color: var(--muted);
         padding: 0 4px 8px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+
+      .new-chat-btn {
+        background: none;
+        border: 1px solid var(--border);
+        color: var(--muted);
+        border-radius: 6px;
+        width: 22px;
+        height: 22px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        font-size: 14px;
+        line-height: 1;
+        transition: all 0.15s;
+      }
+
+      .new-chat-btn:hover {
+        color: var(--accent);
+        border-color: var(--accent);
+        background: var(--accent-dim);
+      }
+
+      .thread-list {
+        display: flex;
+        flex-direction: column;
+        gap: 1px;
+        margin-top: 4px;
+        margin-bottom: 8px;
+      }
+
+      .thread-item {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 7px 10px 7px 42px;
+        border-radius: 8px;
+        cursor: pointer;
+        transition: background 0.15s;
+        border: 1px solid transparent;
+        font-size: 12px;
+        color: var(--muted);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .thread-item:hover {
+        background: var(--panel-hover);
+        color: var(--text);
+      }
+
+      .thread-item.active {
+        background: var(--accent-dim);
+        border-color: rgba(56, 189, 248, 0.15);
+        color: var(--text);
+      }
+
+      .thread-dot {
+        width: 5px;
+        height: 5px;
+        border-radius: 50%;
+        background: var(--muted);
+        flex-shrink: 0;
+      }
+
+      .thread-item.active .thread-dot {
+        background: var(--accent);
       }
 
       .project-list {
@@ -569,8 +641,11 @@
         </div>
 
         <div class="sidebar-section">
-          <div class="sidebar-section-title">Projects</div>
-          <div class="project-list" id="projectList">
+          <div class="sidebar-section-title">
+            <span>Chats</span>
+            <button class="new-chat-btn" id="newChatBtn" title="New chat">+</button>
+          </div>
+          <div id="chatList">
             <div style="padding: 12px; color: var(--muted); font-size: 12px;">Connect to see projects</div>
           </div>
         </div>
@@ -633,9 +708,22 @@
         ws: null,
         token: localStorage.getItem("rw_token") || "",
         projects: [],
-        selectedProject: localStorage.getItem("rw_project") || "",
         connected: false,
+        // Thread management
+        activeThreadId: null,
+        threads: JSON.parse(localStorage.getItem("rw_threads") || "[]"),
+        // messages keyed by threadId
+        messageCache: {},
       };
+
+      function saveThreads() {
+        localStorage.setItem("rw_threads", JSON.stringify(state.threads));
+      }
+
+      function generateThreadId(projectAlias) {
+        const id = crypto.randomUUID().slice(0, 8);
+        return `web:${projectAlias}:${id}`;
+      }
 
       // ── DOM refs ────────────────────────────────────────────
       const els = {
@@ -644,7 +732,7 @@
         connect: document.getElementById("connect"),
         connectionDot: document.getElementById("connectionDot"),
         connectionText: document.getElementById("connectionText"),
-        projectList: document.getElementById("projectList"),
+        chatList: document.getElementById("chatList"),
         currentProjectName: document.getElementById("currentProjectName"),
         taskStatus: document.getElementById("taskStatus"),
         messages: document.getElementById("messages"),
@@ -656,6 +744,7 @@
         sidebar: document.getElementById("sidebar"),
         sidebarOverlay: document.getElementById("sidebarOverlay"),
         hamburger: document.getElementById("hamburger"),
+        newChatBtn: document.getElementById("newChatBtn"),
       };
 
       els.token.value = state.token;
@@ -674,17 +763,18 @@
         }
       }
 
-      // ── Project rendering ───────────────────────────────────
-      function renderProjects() {
-        els.projectList.innerHTML = "";
+      // ── Chat list rendering (projects + threads) ────────────
+      function renderChatList() {
+        els.chatList.innerHTML = "";
         if (state.projects.length === 0) {
-          els.projectList.innerHTML = '<div style="padding: 12px; color: var(--muted); font-size: 12px;">No projects configured</div>';
+          els.chatList.innerHTML = '<div style="padding: 12px; color: var(--muted); font-size: 12px;">No projects configured</div>';
           return;
         }
 
         for (const p of state.projects) {
+          // Project header
           const item = document.createElement("div");
-          item.className = "project-item" + (state.selectedProject === p.alias ? " active" : "");
+          item.className = "project-item";
           item.innerHTML = `
             <div class="project-icon">${p.alias.charAt(0).toUpperCase()}</div>
             <div class="project-info">
@@ -692,23 +782,74 @@
               <div class="project-path">${esc(p.description || p.path)}</div>
             </div>
           `;
-          item.onclick = () => selectProject(p.alias);
-          els.projectList.appendChild(item);
+          item.onclick = () => newChat(p.alias);
+          els.chatList.appendChild(item);
+
+          // Threads under this project
+          const projectThreads = state.threads.filter(t => t.project === p.alias);
+          if (projectThreads.length > 0) {
+            const threadList = document.createElement("div");
+            threadList.className = "thread-list";
+            for (const t of projectThreads) {
+              const ti = document.createElement("div");
+              ti.className = "thread-item" + (state.activeThreadId === t.id ? " active" : "");
+              ti.innerHTML = `<span class="thread-dot"></span>${esc(t.label)}`;
+              ti.onclick = (e) => { e.stopPropagation(); switchThread(t.id); };
+              threadList.appendChild(ti);
+            }
+            els.chatList.appendChild(threadList);
+          }
         }
       }
 
-      function selectProject(alias) {
-        state.selectedProject = alias;
-        localStorage.setItem("rw_project", alias);
-        els.currentProjectName.textContent = alias;
-        renderProjects();
+      // ── Thread management ───────────────────────────────────
+      function newChat(projectAlias) {
+        const threadId = generateThreadId(projectAlias);
+        const label = `Chat ${state.threads.filter(t => t.project === projectAlias).length + 1}`;
+        const thread = { id: threadId, project: projectAlias, label, createdAt: Date.now() };
+        state.threads.unshift(thread);
+        saveThreads();
+        switchThread(threadId);
         // Close sidebar on mobile
         els.sidebar.classList.remove("open");
         els.sidebarOverlay.classList.remove("open");
       }
 
+      function switchThread(threadId) {
+        const thread = state.threads.find(t => t.id === threadId);
+        if (!thread) return;
+
+        state.activeThreadId = threadId;
+        els.currentProjectName.textContent = `${thread.project} / ${thread.label}`;
+        els.taskStatus.textContent = "";
+
+        // Subscribe to this thread's updates
+        if (state.ws && state.connected) {
+          state.ws.send(JSON.stringify({ type: "subscribe", threadId }));
+        }
+
+        // Render cached messages for this thread
+        els.messages.innerHTML = "";
+        const cached = state.messageCache[threadId] || [];
+        for (const m of cached) {
+          addMessageToDOM(m.kind, m.text, m.approvalId);
+        }
+
+        renderChatList();
+      }
+
       // ── Messages ────────────────────────────────────────────
       function addMessage(kind, text, approvalId) {
+        if (state.activeThreadId) {
+          if (!state.messageCache[state.activeThreadId]) {
+            state.messageCache[state.activeThreadId] = [];
+          }
+          state.messageCache[state.activeThreadId].push({ kind, text, approvalId });
+        }
+        addMessageToDOM(kind, text, approvalId);
+      }
+
+      function addMessageToDOM(kind, text, approvalId) {
         const div = document.createElement("div");
         div.className = `msg ${approvalId ? "approval" : kind}`;
         div.textContent = text;
@@ -763,15 +904,12 @@
         try {
           const data = await api("/api/projects");
           state.projects = data.projects || [];
-          renderProjects();
-          // Auto-select first project or restore last
-          if (state.projects.length > 0) {
-            const found = state.projects.find(p => p.alias === state.selectedProject);
-            if (!found) {
-              selectProject(state.projects[0].alias);
-            } else {
-              selectProject(found.alias);
-            }
+          renderChatList();
+          // Auto-select last active thread or create one for first project
+          if (state.threads.length > 0) {
+            switchThread(state.threads[0].id);
+          } else if (state.projects.length > 0) {
+            newChat(state.projects[0].alias);
           }
         } catch (err) {
           addMessage("bot", `Failed to load projects: ${err.message || err}`);
@@ -793,6 +931,10 @@
 
           if (msg.type === "authed") {
             setConnectionStatus(true);
+            // Re-subscribe to active thread
+            if (state.activeThreadId) {
+              state.ws.send(JSON.stringify({ type: "subscribe", threadId: state.activeThreadId }));
+            }
             return;
           }
 
@@ -802,27 +944,34 @@
             return;
           }
 
-          if (msg.type === "result") {
-            addMessage("bot", msg.summary || "(empty result)");
-          } else if (msg.type === "error") {
-            addMessage("bot", `Error: ${msg.error}`);
-          } else if (msg.type === "approval_needed") {
-            addMessage("bot", `Approval needed: ${msg.description}`, msg.approvalId);
-          } else if (msg.type === "task_update") {
+          if (msg.type === "task_update") {
+            // Update the thread label on first bot response
+            if (msg.threadId && msg.status === "done" && msg.summary) {
+              const thread = state.threads.find(t => t.id === msg.threadId);
+              if (thread && thread.label.startsWith("Chat ")) {
+                thread.label = msg.summary.slice(0, 40).replace(/\n/g, " ").trim() || thread.label;
+                saveThreads();
+                renderChatList();
+              }
+            }
+
             if (msg.status === "done") {
-              addMessage("bot", msg.summary || `Task ${msg.taskId} completed.`);
+              addMessage("bot", msg.summary || "Task completed.");
               els.taskStatus.textContent = "";
             } else if (msg.status === "failed") {
-              addMessage("bot", `Task failed${msg.error ? ` (${msg.error})` : ""}. ${msg.summary || ""}`);
+              addMessage("bot", `Failed${msg.error ? ` (${msg.error})` : ""}${msg.summary ? ": " + msg.summary : ""}`);
               els.taskStatus.textContent = "";
             } else if (msg.status === "needs_approval") {
-              addMessage("bot", `Task ${msg.taskId} needs approval. ${msg.summary || ""}`);
               els.taskStatus.textContent = "Awaiting approval";
             } else if (msg.status === "running") {
               els.taskStatus.textContent = "Running...";
             } else if (msg.status === "queued") {
               els.taskStatus.textContent = "Queued";
             }
+          } else if (msg.type === "approval_needed") {
+            addMessage("bot", `Approval needed: ${msg.description}`, msg.approvalId);
+          } else if (msg.type === "error") {
+            addMessage("bot", `Error: ${msg.error}`);
           }
         };
 
@@ -844,8 +993,11 @@
         const file = els.file.files?.[0];
         if (!file) return null;
 
+        const thread = state.threads.find(t => t.id === state.activeThreadId);
+        if (!thread) return null;
+
         const form = new FormData();
-        form.append("project", state.selectedProject);
+        form.append("project", thread.project);
         form.append("file", file, file.name);
 
         const result = await api("/api/upload", { method: "POST", body: form });
@@ -855,9 +1007,9 @@
 
       // ── Send ────────────────────────────────────────────────
       async function sendMessage() {
-        const project = state.selectedProject;
+        const thread = state.threads.find(t => t.id === state.activeThreadId);
         const prompt = els.prompt.value.trim();
-        if (!project || !prompt || !state.connected) return;
+        if (!thread || !prompt || !state.connected) return;
 
         let extra = "";
         try {
@@ -871,8 +1023,9 @@
         addMessage("user", prompt);
         state.ws.send(JSON.stringify({
           type: "message",
-          project,
+          project: thread.project,
           prompt: `${prompt}${extra}`,
+          threadId: thread.id,
           continue: els.continue.checked,
         }));
         els.prompt.value = "";
@@ -894,6 +1047,16 @@
       };
 
       els.send.onclick = sendMessage;
+      els.newChatBtn.onclick = () => {
+        // Create new chat for the first project, or prompt to pick
+        if (state.projects.length === 1) {
+          newChat(state.projects[0].alias);
+        } else if (state.projects.length > 1) {
+          // Pick from active thread's project or first
+          const activeThread = state.threads.find(t => t.id === state.activeThreadId);
+          newChat(activeThread?.project || state.projects[0].alias);
+        }
+      };
 
       els.prompt.addEventListener("keydown", (e) => {
         if ((e.metaKey || e.ctrlKey) && e.key === "Enter") sendMessage();

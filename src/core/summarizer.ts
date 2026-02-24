@@ -65,68 +65,62 @@ export class Summarizer {
   async summarize(input: SummarizerInput): Promise<string> {
     const redactedRaw = redactSecrets(input.rawText);
 
-    if (!this.enabled || !this.anthropic) {
-      return this.fallback(redactedRaw, input);
+    // If we have clean assistant text, return it directly — no need for AI summarization
+    const assistantText = input.assistantText?.trim();
+    if (assistantText) {
+      return redactSecrets(assistantText).slice(0, 4000);
     }
 
-    if (!this.bucket.allow()) {
-      return this.fallback(redactedRaw, input);
+    // Try to extract readable text from raw stream output
+    const extracted = this.extractReadableText(redactedRaw);
+    if (extracted) {
+      return redactSecrets(extracted).slice(0, 4000);
     }
 
-    const body = [
-      `Tokens used: ${input.tokensUsed} / ${input.tokenBudget}`,
-      input.replayActions && input.replayActions.length > 0
-        ? `Actions during approved replay: ${input.replayActions.join(", ")}`
-        : "Actions during approved replay: none",
-      input.toolSummary.length > 0 ? `Tool summary:\n- ${input.toolSummary.join("\n- ")}` : "Tool summary: none",
-      "",
-      "Raw output:",
-      redactedRaw.slice(0, 120_000),
-    ].join("\n");
+    // Only use AI summarizer for cases where we have raw output but no clean text
+    if (this.enabled && this.anthropic && this.bucket.allow()) {
+      const body = [
+        `Tokens used: ${input.tokensUsed} / ${input.tokenBudget}`,
+        input.replayActions && input.replayActions.length > 0
+          ? `Actions during approved replay: ${input.replayActions.join(", ")}`
+          : "Actions during approved replay: none",
+        input.toolSummary.length > 0 ? `Tool summary:\n- ${input.toolSummary.join("\n- ")}` : "Tool summary: none",
+        "",
+        "Raw output:",
+        redactedRaw.slice(0, 120_000),
+      ].join("\n");
 
-    try {
-      const response = await this.anthropic.messages.create({
-        model: "claude-haiku-4-5-20251001",
-        max_tokens: 800,
-        temperature: 0,
-        system: SYSTEM_PROMPT,
-        messages: [{ role: "user", content: body }],
-      });
+      try {
+        const response = await this.anthropic.messages.create({
+          model: "claude-haiku-4-5-20251001",
+          max_tokens: 800,
+          temperature: 0,
+          system: SYSTEM_PROMPT,
+          messages: [{ role: "user", content: body }],
+        });
 
-      const text = response.content
-        .map((chunk) => (chunk.type === "text" ? chunk.text : ""))
-        .join("\n")
-        .trim();
+        const text = response.content
+          .map((chunk) => (chunk.type === "text" ? chunk.text : ""))
+          .join("\n")
+          .trim();
 
-      if (!text) {
-        return this.fallback(redactedRaw, input);
+        if (text) {
+          return redactSecrets(text);
+        }
+      } catch {
+        // Fall through to fallback
       }
-      return redactSecrets(text);
-    } catch {
-      return this.fallback(redactedRaw, input);
     }
+
+    return this.fallback(redactedRaw, input);
   }
 
   private fallback(raw: string, input: SummarizerInput): string {
-    // Prefer the clean assistant text over raw stream-json
-    const displayText = input.assistantText?.trim() || this.extractReadableText(raw);
-    const body = displayText.slice(0, 1800);
-
-    const parts = [
-      `**Tokens**: ${input.tokensUsed} / ${input.tokenBudget}`,
-    ];
-
-    if (input.toolSummary.length > 0) {
-      parts.push(`**Tools**: ${input.toolSummary.join("; ")}`);
+    const displayText = this.extractReadableText(raw);
+    if (displayText) {
+      return displayText.slice(0, 4000);
     }
-
-    if (body) {
-      parts.push("", body);
-    } else {
-      parts.push("", "(No readable output captured)");
-    }
-
-    return parts.join("\n");
+    return "(No readable output captured)";
   }
 
   private extractReadableText(raw: string): string {

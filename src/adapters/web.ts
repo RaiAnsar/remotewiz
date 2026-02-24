@@ -418,6 +418,16 @@ export class WebAdapter implements Adapter {
           return;
         }
 
+        if (type === "subscribe") {
+          const threadId = String(message.threadId || "").trim();
+          if (threadId) {
+            const subscription = this.subscriptions.get(socket);
+            subscription?.add(threadId);
+            socket.send(JSON.stringify({ type: "subscribed", threadId }));
+          }
+          return;
+        }
+
         if (type === "approval") {
           const approvalId = String(message.approvalId || "");
           const action = String(message.action || "");
