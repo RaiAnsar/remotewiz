@@ -27,15 +27,27 @@ async function main(): Promise<void> {
     discord: Boolean(runtimeConfig.discordToken),
   });
 
+  let shutdownRequested = false;
+
   const shutdown = async (signal: string) => {
-    logInfo(`Received ${signal}; shutting down`);
+    if (shutdownRequested) {
+      logInfo("Force exit");
+      process.exit(1);
+    }
+    shutdownRequested = true;
+    logInfo(`Received ${signal}; shutting down (press again to force)`);
     try {
+      // Give graceful shutdown 3 seconds, then force exit
+      const timer = setTimeout(() => {
+        logWarn("Graceful shutdown timed out, forcing exit");
+        process.exit(1);
+      }, 3000);
+      timer.unref();
       await app.stop();
     } catch (error) {
       logError("Shutdown error", error);
-    } finally {
-      process.exit(0);
     }
+    process.exit(0);
   };
 
   process.on("SIGINT", () => {
