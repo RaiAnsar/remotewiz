@@ -290,7 +290,7 @@ export class DiscordAdapter implements Adapter {
         prompt,
         threadId,
         adapter: "discord",
-        continueSession: false,
+        continueSession: true,
         actorId: message.author.id,
       });
     } catch (error) {

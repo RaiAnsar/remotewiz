@@ -1020,13 +1020,16 @@
           return;
         }
 
+        // Auto-continue if this thread already has messages
+        const hasHistory = (state.messageCache[thread.id] || []).some(m => m.kind === "bot");
+
         addMessage("user", prompt);
         state.ws.send(JSON.stringify({
           type: "message",
           project: thread.project,
           prompt: `${prompt}${extra}`,
           threadId: thread.id,
-          continue: els.continue.checked,
+          continue: hasHistory || els.continue.checked,
         }));
         els.prompt.value = "";
         els.file.value = "";
